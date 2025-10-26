@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Récapitulatif</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
+    const SURVEY_SLUG = "nov-2025";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  </script>
+</head>
+<body>
+  <h1>Récapitulatif des disponibilités</h1>
+  <table id="results" border="1" cellpadding="6"></table>
+
+  <script>
+    async function loadResults() {
+      const { data, error } = await supabase
+        .from('public_survey_results')
+        .select('responses')
+        .eq('slug', SURVEY_SLUG);
+      if (error) { alert(error.message); return; }
+
+      const table = document.getElementById('results');
+      table.innerHTML = "<tr><th>Participant</th><th>Réponses</th></tr>";
+      data.forEach((row, i) => {
+        const resp = JSON.stringify(row.responses);
+        table.innerHTML += `<tr><td>P${i+1}</td><td>${resp}</td></tr>`;
+      });
+    }
+    loadResults();
+  </script>
+</body>
+</html>
