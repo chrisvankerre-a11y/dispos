@@ -87,40 +87,48 @@
     }
 
     function buildTable(responsesList) {
-      const tbl = document.getElementById("tbl");
-      const thead = tbl.querySelector("thead tr");
-      const tbody = document.getElementById("tbody");
+  const tbl = document.getElementById("tbl");
+  const thead = tbl.querySelector("thead tr");
+  const tbody = document.getElementById("tbody");
 
-      tbody.innerHTML = "";
-      thead.innerHTML = "<th>Date</th>";
+  tbody.innerHTML = "";
+  thead.innerHTML = "<th>Date</th>";
 
-      const participants = responsesList.map(r => r.user_name);
-      participants.forEach(name => {
-        thead.innerHTML += `<th>${name}</th>`;
-      });
+  const participants = responsesList.map(r => r.user_name);
+  participants.forEach(name => {
+    thead.innerHTML += `<th>${name}</th>`;
+  });
+  thead.innerHTML += "<th>Jour parfait</th>";   // ✅ colonne ajoutée
 
-      const dates = rangeDates(startDate, endDate);
-      dates.forEach(date => {
-        const key = iso(date);
-        const row = document.createElement("tr");
-        if (isMuted(date)) row.classList.add("muted");
+  const dates = rangeDates(startDate, endDate);
+  dates.forEach(date => {
+    const key = iso(date);
+    const row = document.createElement("tr");
+    if (isMuted(date)) row.classList.add("muted");
 
-        let cells = `<td>${fmt(date)}</td>`;
-        responsesList.forEach(r => {
-          const val = r.responses[key];
-          let symbol = "";
-          if (val === "available") symbol = "✅";
-          else if (val === "maybe") symbol = "❓";
-          else if (val === "unavailable") symbol = "❌";
-          cells += `<td>${symbol}</td>`;
-        });
-        row.innerHTML = cells;
-        tbody.appendChild(row);
-      });
+    let cells = `<td>${fmt(date)}</td>`;
+    let allAvailable = true;
 
-      document.getElementById("meta").textContent =
-        `Sondage : ${SURVEY_SLUG} — ${participants.length} participants`;
-    }
+    responsesList.forEach(r => {
+      const val = r.responses[key];
+      let symbol = "";
+      if (val === "available") symbol = "✅";
+      else if (val === "maybe") { symbol = "❓"; allAvailable = false; }
+      else if (val === "unavailable" || !val) { symbol = "❌"; allAvailable = false; }
+      cells += `<td>${symbol}</td>`;
+    });
+
+    // ajout de la dernière cellule
+    const perfect = (!isMuted(date) && responsesList.length > 0 && allAvailable);
+    cells += `<td>${perfect ? "🌟" : ""}</td>`;
+
+    row.innerHTML = cells;
+    tbody.appendChild(row);
+  });
+
+  document.getElementById("meta").textContent =
+    `Sondage : ${SURVEY_SLUG} — ${participants.length} participants`;
+}
 
     async function init() {
       await getSurvey();
