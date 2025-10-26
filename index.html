@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Disponibilités</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
+    const SURVEY_SLUG = "nov-2025";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  </script>
+</head>
+<body>
+  <h1>Sondage disponibilités</h1>
+  <input id="loginEmail" placeholder="Email">
+  <button onclick="sendMagicLink()">Connexion</button>
+  <input id="userName" placeholder="Nom">
+  <button onclick="saveToSupabase()">Enregistrer</button>
+
+  <script>
+    async function sendMagicLink() {
+      const email = document.getElementById('loginEmail').value;
+      await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href }});
+      alert("Vérifie ton email");
+    }
+
+    async function saveToSupabase() {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return alert("Connecte-toi d'abord.");
+      const name = document.getElementById('userName').value;
+      const { data: survey } = await supabase.from('surveys').select('id').eq('slug', SURVEY_SLUG).single();
+      await supabase.from('submissions').upsert({
+        survey_id: survey.id, user_id: user.id, user_name: name, responses: {test:"ok"}
+      });
+      alert("Enregistré !");
+    }
+  </script>
+</body>
+</html>
