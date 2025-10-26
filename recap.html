@@ -14,6 +14,9 @@
     .muted{background:#ecf0f1;color:#7f8c8d}
     .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}
     a.btn{background:#6c757d;color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px}
+    .footer-btn{margin-top:20px;text-align:right;}
+    .reset-btn{background:#bdc3c7;color:#2c3e50;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;}
+    .reset-btn:hover{background:#95a5a6;}
   </style>
 
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
@@ -37,6 +40,10 @@
       <thead><tr></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
+
+    <div class="footer-btn">
+      <button class="reset-btn" onclick="resetAll()">🧹 Réinitialiser le tableau</button>
+    </div>
   </div>
 
   <script>
@@ -82,7 +89,7 @@
 
       const participants = responsesList.map(r => r.user_name);
       participants.forEach(name => { thead.innerHTML += `<th>${name}</th>`; });
-      thead.innerHTML += "<th>Jour parfait</th>";  // ← colonne ajoutée
+      thead.innerHTML += "<th>Jour parfait</th>";
 
       const dates = rangeDates(startDate, endDate);
 
@@ -112,6 +119,17 @@
 
       document.getElementById("meta").textContent =
         `Sondage : ${SURVEY_SLUG} — ${participants.length} participants`;
+    }
+
+    async function resetAll(){
+      if (!confirm("⚠️ Êtes-vous sûr de vouloir effacer toutes les réponses ? Cette action est irréversible.")) return;
+      const { error } = await supabase
+        .from("submissions_simple")
+        .delete()
+        .eq("survey_id", SURVEY_ID);
+      if (error) return alert("Erreur : " + error.message);
+      alert("🧹 Toutes les réponses ont été effacées.");
+      init(); // recharge le tableau vide
     }
 
     async function init(){
