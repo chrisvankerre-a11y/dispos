@@ -5,30 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mes Disponibilités - Novembre 2025</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 20px;
-      background-color: #f5f5f5;
-    }
-    .container {
-      background: white;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
+    body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; }
+    .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
     h1 { color: #2c3e50; text-align: center; }
-    table { border-collapse: collapse; width: 100%; min-width: 800px; }
-    th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
-    th { background-color: #34495e; color: white; }
-    .non-voting-day { background-color: #ecf0f1; color: #7f8c8d; }
-    .availability-option { cursor: pointer; padding: 8px; margin: 2px; border-radius: 5px; display: inline-block; width: 30px; height: 30px; text-align: center; line-height: 30px; transition: all 0.3s; font-weight: bold; }
-    .available { background-color: #2ecc71; color: white; }
-    .maybe { background-color: #f39c12; color: white; }
-    .unavailable { background-color: #e74c3c; color: white; }
-    input[type="radio"] { display: none; }
-    input[type="radio"]:checked + .availability-option { transform: scale(1.2); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
     .save-btn { background-color: #3498db; color: white; padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
     .save-btn:hover { background-color: #2980b9; }
     .auto-btn { padding: 8px 14px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
@@ -37,39 +16,50 @@
     .auto-maybe { background-color: #f39c12; color: white; }
     .legend { display: flex; justify-content: center; gap: 20px; margin: 15px 0; flex-wrap: wrap; }
     .legend-item { display: flex; align-items: center; gap: 5px; }
+    .availability-option { cursor: pointer; padding: 8px; margin: 2px; border-radius: 5px; display: inline-block; width: 30px; height: 30px; text-align: center; line-height: 30px; transition: all 0.3s; font-weight: bold; }
+    .available { background-color: #2ecc71; color: white; }
+    .maybe { background-color: #f39c12; color: white; }
+    .unavailable { background-color: #e74c3c; color: white; }
+    input[type="radio"] { display: none; }
+    input[type="radio"]:checked + .availability-option { transform: scale(1.2); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
+    table { border-collapse: collapse; width: 100%; min-width: 800px; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+    th { background-color: #34495e; color: white; }
+    .non-voting-day { background-color: #ecf0f1; color: #7f8c8d; }
+    .name-input { padding: 10px; font-size: 16px; border: 2px solid #ddd; border-radius: 5px; width: 300px; margin: 10px 0; }
   </style>
 
-  <!-- SUPABASE -->
+  <!-- Supabase -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
-    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";   // ← à remplacer
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";                 // ← à remplacer
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";   // ← remplace
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";                 // ← remplace
     const SURVEY_SLUG = "nov-2025";
+
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    let SURVEY_ID = null, session = null, user = null;
+
+    let SURVEY_ID = null;              // sera créé/trouvé automatiquement
+    let userSelections = {};           // { "YYYY-MM-DD": "available" | "maybe" | "unavailable" }
+
+    // Jours à griser (déjà présents dans ton ancien fichier)
+    const nonVotingDays = ["2025-11-01","2025-11-02","2025-11-08","2025-11-09","2025-11-11","2025-11-15","2025-11-16"];
   </script>
 </head>
-
 <body>
   <div class="container">
     <h1>📅 Mes Disponibilités - Novembre 2025</h1>
 
     <div style="margin:12px 0;">
-      <input id="loginEmail" placeholder="Email" style="padding:8px;width:260px;">
-      <button onclick="sendMagicLink()" style="padding:8px 12px;">📩 Connexion</button>
-    </div>
-
-    <div style="margin:12px 0;">
       <input id="userName" class="name-input" placeholder="Votre nom et prénom">
     </div>
 
-    <div style="margin:12px 0;display:flex;gap:8px;">
+    <div style="margin:12px 0;display:flex;gap:8px;flex-wrap:wrap;">
       <button onclick="saveToSupabase()" class="save-btn">💾 Enregistrer</button>
       <a href="recap.html?survey=nov-2025" class="save-btn" style="background:#6c757d;text-decoration:none;">🔗 Voir le récap</a>
       <button onclick="deleteMySubmission()" class="save-btn" style="background:#e74c3c;">🗑️ Effacer mes réponses</button>
     </div>
 
-    <div class="auto-fill-buttons">
+    <div class="auto-fill-buttons" style="margin: 12px 0; display:flex; gap:8px; flex-wrap:wrap;">
       <button class="auto-btn auto-available" onclick="fillAll('available')">✅ Tout Disponible</button>
       <button class="auto-btn auto-unavailable" onclick="fillAll('unavailable')">❌ Tout Indisponible</button>
       <button class="auto-btn auto-maybe" onclick="fillAll('maybe')">❓ Tout Peut-être</button>
@@ -90,21 +80,23 @@
   </div>
 
   <script>
-    // ----- TABLEAU DISPONIBILITÉS -----
-    const nonVotingDays = ["2025-11-01","2025-11-02","2025-11-08","2025-11-09","2025-11-11","2025-11-15","2025-11-16"];
-    let userSelections = {};
-
-    function generateNovemberDates(){
-      const d=[];const s=new Date('2025-11-01');const e=new Date('2025-11-21');
-      for(let x=new Date(s);x<=e;x.setDate(x.getDate()+1)) d.push(new Date(x)); return d;
+    // --------- Génération des dates / tableau ---------
+    function generateNovemberDates() {
+      const dates = [];
+      const startDate = new Date('2025-11-01');
+      const endDate = new Date('2025-11-21');
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate()+1)) dates.push(new Date(d));
+      return dates;
     }
-    function isNonVotingDay(date){return nonVotingDays.includes(date.toISOString().split('T')[0]);}
+    function isNonVotingDay(date){ return nonVotingDays.includes(date.toISOString().split('T')[0]); }
 
     function createAvailabilityTable(){
-      const tbody=document.getElementById('tableBody'); tbody.innerHTML='';
-      generateNovemberDates().forEach(date=>{
+      const tbody = document.getElementById('tableBody'); tbody.innerHTML='';
+      const dates = generateNovemberDates();
+      dates.forEach(date=>{
         const tr=document.createElement('tr');
         const dateString=date.toISOString().split('T')[0];
+
         const tdDate=document.createElement('td');
         tdDate.textContent=`${date.getDate()}/${date.getMonth()+1}/${date.getFullYear()}`;
         if(isNonVotingDay(date)) tdDate.classList.add('non-voting-day');
@@ -122,9 +114,11 @@
             input.type='radio'; input.name=`availability-${dateString}`; input.value=t.v;
             input.onchange=()=>userSelections[dateString]=t.v;
             if(userSelections[dateString]===t.v) input.checked=true;
+
             const span=document.createElement('span');
             span.classList.add('availability-option',t.c); span.textContent=t.s;
-            label.appendChild(input); label.appendChild(span); tdAvail.appendChild(label);
+            label.appendChild(input); label.appendChild(span);
+            tdAvail.appendChild(label);
           });
         }
         tr.appendChild(tdAvail); tbody.appendChild(tr);
@@ -138,67 +132,106 @@
       createAvailabilityTable();
     }
 
-    // ----- SUPABASE -----
-    async function sendMagicLink(){
-      const email=document.getElementById('loginEmail').value.trim();
-      if(!email) return alert("Entrez un email");
-      const {error}=await supabase.auth.signInWithOtp({email,options:{emailRedirectTo:location.href}});
-      if(error) return alert(error.message);
-      alert("Vérifie ton email et reviens ici.");
-    }
+    // --------- Supabase : création auto du sondage + CRUD simple ---------
+    async function ensureSurvey() {
+      // 1) Cherche le sondage
+      let { data, error } = await supabase
+        .from('surveys')
+        .select('id')
+        .eq('slug', SURVEY_SLUG)
+        .maybeSingle();
 
-    async function getSurveyId(){
-      const {data,error}=await supabase.from('surveys').select('id').eq('slug',SURVEY_SLUG).single();
-      if(error) throw error; SURVEY_ID=data.id;
+      if (!data) {
+        // 2) S'il n'existe pas : le créer à partir des dates déjà définies dans la page
+        const all = generateNovemberDates();
+        const start = all.length ? all[0].toISOString().slice(0,10) : '2025-11-01';
+        const end   = all.length ? all[all.length-1].toISOString().slice(0,10) : '2025-11-21';
+        const nvd   = (Array.isArray(nonVotingDays) ? nonVotingDays : []).map(String);
+
+        const ins = await supabase
+          .from('surveys')
+          .insert({
+            slug: SURVEY_SLUG,
+            title: `Disponibilités – ${SURVEY_SLUG}`,
+            start_date: start,
+            end_date: end,
+            non_voting_days: nvd
+          })
+          .select('id')
+          .single();
+        if (ins.error) { alert(ins.error.message); throw ins.error; }
+        data = ins.data;
+      }
+      SURVEY_ID = data.id;
     }
 
     function buildResponsesJSON(){
       const out={};
-      for(const [d,v] of Object.entries(userSelections||{})){ if(v && v!=='unavailable') out[d]=v; }
+      for(const [d,v] of Object.entries(userSelections||{})){
+        if(v && v!=='unavailable') out[d]=v;
+      }
       return out;
     }
 
-    async function preloadSubmission(){
-      if(!user||!SURVEY_ID) return;
-      const {data,error}=await supabase.from('submissions').select('user_name,responses')
-        .eq('survey_id',SURVEY_ID).eq('user_id',user.id).maybeSingle();
-      if(error) return;
-      if(data){ document.getElementById('userName').value=data.user_name||''; userSelections=data.responses||{}; createAvailabilityTable(); }
+    async function preloadByName(){
+      const name = document.getElementById('userName').value.trim();
+      if (!name || !SURVEY_ID) return;
+      const { data, error } = await supabase
+        .from('submissions_simple')
+        .select('responses')
+        .eq('survey_id', SURVEY_ID)
+        .eq('user_name', name)
+        .maybeSingle();
+      if (error) return;
+      if (data?.responses) { userSelections = data.responses; createAvailabilityTable(); }
     }
 
     async function saveToSupabase(){
-      const {data:{session:s}}=await supabase.auth.getSession(); user=s?.user||null;
-      if(!user) return alert("Connectez-vous d'abord.");
-      const name=document.getElementById('userName').value.trim();
-      if(!name) return alert("Entrez votre nom.");
-      if(!SURVEY_ID) await getSurveyId();
-      const responses=buildResponsesJSON();
-      if(!Object.keys(responses).length) return alert("Sélectionnez au moins une disponibilité.");
-      const {error}=await supabase.from('submissions').upsert({
-        survey_id:SURVEY_ID,user_id:user.id,user_name:name,responses,updated_at:new Date().toISOString()
-      },{onConflict:'survey_id,user_id'});
-      if(error) return alert(error.message);
+      const name = document.getElementById('userName').value.trim();
+      if (!name) return alert("Entrez votre nom.");
+      if (!SURVEY_ID) await ensureSurvey();
+
+      const responses = buildResponsesJSON();
+      if (!Object.keys(responses).length) return alert("Sélectionnez au moins une disponibilité.");
+
+      const { error } = await supabase
+        .from('submissions_simple')
+        .upsert({
+          survey_id: SURVEY_ID,
+          user_name: name,
+          responses,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'survey_id,user_name' });
+
+      if (error) return alert(error.message);
       alert("✅ Réponses enregistrées !");
     }
 
     async function deleteMySubmission(){
-      const {data:{session:s}}=await supabase.auth.getSession(); user=s?.user||null;
-      if(!user) return alert("Connectez-vous d'abord.");
-      if(!SURVEY_ID) await getSurveyId();
-      if(!confirm("Effacer toutes vos réponses ?")) return;
-      const {error}=await supabase.from('submissions').delete().eq('survey_id',SURVEY_ID).eq('user_id',user.id);
-      if(error) return alert(error.message);
-      userSelections={}; createAvailabilityTable(); document.getElementById('userName').value='';
+      const name = document.getElementById('userName').value.trim();
+      if (!name) return alert("Entrez votre nom.");
+      if (!SURVEY_ID) await ensureSurvey();
+      if (!confirm(`Effacer les réponses de "${name}" ?`)) return;
+
+      const { error } = await supabase
+        .from('submissions_simple')
+        .delete()
+        .eq('survey_id', SURVEY_ID)
+        .eq('user_name', name);
+
+      if (error) return alert(error.message);
+      userSelections = {};
+      createAvailabilityTable();
       alert("🗑️ Réponses effacées.");
     }
 
-    async function initAuth(){
-      await getSurveyId();
-      const {data:{session:s}}=await supabase.auth.getSession(); session=s; user=s?.user||null;
-      if(user) await preloadSubmission(); else createAvailabilityTable();
-    }
-    document.addEventListener('DOMContentLoaded', initAuth);
-    supabase.auth.onAuthStateChange(async (_evt,s)=>{session=s;user=s?.user||null;if(user)await preloadSubmission();});
+    // --------- Init ---------
+    document.addEventListener('DOMContentLoaded', async ()=>{
+      await ensureSurvey();          // crée ou récupère le sondage automatiquement
+      createAvailabilityTable();     // affiche le tableau
+      const i = document.getElementById('userName');
+      if (i) i.addEventListener('blur', preloadByName); // recharge si le nom existe déjà
+    });
   </script>
 </body>
 </html>
