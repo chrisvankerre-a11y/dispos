@@ -1,41 +1,105 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Disponibilités</title>
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  <script>
-    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
-    const SURVEY_SLUG = "nov-2025";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  </script>
-</head>
-<body>
-  <h1>Sondage disponibilités</h1>
-  <input id="loginEmail" placeholder="Email">
-  <button onclick="sendMagicLink()">Connexion</button>
-  <input id="userName" placeholder="Nom">
-  <button onclick="saveToSupabase()">Enregistrer</button>
+<!-- === FORMULAIRE DE DISPONIBILITÉS === -->
+<div class="auto-fill-buttons">
+  <button class="auto-btn auto-available" onclick="fillAll('available')">✅ Tout Disponible</button>
+  <button class="auto-btn auto-unavailable" onclick="fillAll('unavailable')">❌ Tout Indisponible</button>
+  <button class="auto-btn auto-maybe" onclick="fillAll('maybe')">❓ Tout Peut-être</button>
+</div>
 
-  <script>
-    async function sendMagicLink() {
-      const email = document.getElementById('loginEmail').value;
-      await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href }});
-      alert("Vérifie ton email");
-    }
+<div class="legend">
+  <div class="legend-item"><span class="availability-option available">✓</span>Disponible</div>
+  <div class="legend-item"><span class="availability-option unavailable">✗</span>Indisponible</div>
+  <div class="legend-item"><span class="availability-option maybe">?</span>Peut-être</div>
+</div>
 
-    async function saveToSupabase() {
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user;
-      if (!user) return alert("Connecte-toi d'abord.");
-      const name = document.getElementById('userName').value;
-      const { data: survey } = await supabase.from('surveys').select('id').eq('slug', SURVEY_SLUG).single();
-      await supabase.from('submissions').upsert({
-        survey_id: survey.id, user_id: user.id, user_name: name, responses: {test:"ok"}
+<div class="calendar">
+  <table id="availabilityTable">
+    <thead>
+      <tr><th>Date</th><th>Disponibilité</th></tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<script>
+const nonVotingDays = [
+  "2025-11-01", "2025-11-02", "2025-11-08", "2025-11-09", 
+  "2025-11-11", "2025-11-15", "2025-11-16"
+];
+
+let userSelections = {};
+
+function generateNovemberDates() {
+  const dates = [];
+  const startDate = new Date('2025-11-01');
+  const endDate = new Date('2025-11-21');
+  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    dates.push(new Date(d));
+  }
+  return dates;
+}
+
+function isNonVotingDay(date) {
+  const dateString = date.toISOString().split('T')[0];
+  return nonVotingDays.includes(dateString);
+}
+
+function createAvailabilityTable() {
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  const dates = generateNovemberDates();
+  dates.forEach(date => {
+    const tr = document.createElement('tr');
+    const dateString = date.toISOString().split('T')[0];
+    const day = date.getDate();
+    const month = date.getMonth() + 1;
+
+    const dateTd = document.createElement('td');
+    dateTd.textContent = `${day}/${month}/${date.getFullYear()}`;
+    if (isNonVotingDay(date)) dateTd.classList.add('non-voting-day');
+    tr.appendChild(dateTd);
+
+    const availabilityTd = document.createElement('td');
+    if (isNonVotingDay(date)) {
+      availabilityTd.classList.add('non-voting-day');
+      availabilityTd.innerHTML = '<span style="color:#7f8c8d;">Non disponible</span>';
+    } else {
+      const types = [
+        { value: 'available', symbol: '✓', class: 'available' },
+        { value: 'unavailable', symbol: '✗', class: 'unavailable' },
+        { value: 'maybe', symbol: '?', class: 'maybe' }
+      ];
+      types.forEach(t => {
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = `availability-${dateString}`;
+        input.value = t.value;
+        input.onchange = () => userSelections[dateString] = t.value;
+        if (userSelections[dateString] === t.value) input.checked = true;
+
+        const span = document.createElement('span');
+        span.classList.add('availability-option', t.class);
+        span.textContent = t.symbol;
+        label.appendChild(input);
+        label.appendChild(span);
+        availabilityTd.appendChild(label);
       });
-      alert("Enregistré !");
     }
-  </script>
-</body>
-</html>
+    tr.appendChild(availabilityTd);
+    tbody.appendChild(tr);
+  });
+}
+
+function fillAll(status) {
+  const dates = generateNovemberDates();
+  dates.forEach(date => {
+    if (!isNonVotingDay(date)) {
+      const dateString = date.toISOString().split('T')[0];
+      userSelections[dateString] = status;
+    }
+  });
+  createAvailabilityTable();
+}
+
+document.addEventListener('DOMContentLoaded', createAvailabilityTable);
+</script>
