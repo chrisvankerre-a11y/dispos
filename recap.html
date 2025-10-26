@@ -40,31 +40,17 @@
   </div>
 
   <script>
-    const nonVotingDays = [];
     let startDate, endDate, SURVEY_ID;
+    const nonVotingDays = [];
 
-    function rangeDates(start, end) {
-      const out = [];
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        out.push(new Date(d));
-      }
-      return out;
+    function rangeDates(start, end){
+      const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out;
     }
+    function fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` }
+    function iso(d){ return d.toISOString().slice(0,10) }
+    function isMuted(d){ return nonVotingDays.includes(iso(d)) }
 
-    function fmt(d) {
-      const dd = d.getDate(), mm = d.getMonth() + 1, yyyy = d.getFullYear();
-      return `${dd}/${mm}/${yyyy}`;
-    }
-
-    function iso(d) {
-      return d.toISOString().slice(0, 10);
-    }
-
-    function isMuted(d) {
-      return nonVotingDays.includes(iso(d));
-    }
-
-    async function getSurvey() {
+    async function getSurvey(){
       const { data, error } = await supabase
         .from("surveys")
         .select("id, start_date, end_date, non_voting_days")
@@ -72,12 +58,12 @@
         .single();
       if (error) throw error;
       startDate = new Date(data.start_date);
-      endDate = new Date(data.end_date);
-      nonVotingDays.push(...(data.non_voting_days || []).map(x => x.toString()));
+      endDate   = new Date(data.end_date);
+      (data.non_voting_days || []).forEach(x => nonVotingDays.push(String(x)));
       SURVEY_ID = data.id;
     }
 
-    async function getAllResponses() {
+    async function getAllResponses(){
       const { data, error } = await supabase
         .from("submissions_simple")
         .select("user_name, responses")
@@ -86,56 +72,53 @@
       return data || [];
     }
 
-    function buildTable(responsesList) {
-  const tbl = document.getElementById("tbl");
-  const thead = tbl.querySelector("thead tr");
-  const tbody = document.getElementById("tbody");
+    function buildTable(responsesList){
+      const tbl   = document.getElementById("tbl");
+      const thead = tbl.querySelector("thead tr");
+      const tbody = document.getElementById("tbody");
 
-  tbody.innerHTML = "";
-  thead.innerHTML = "<th>Date</th>";
+      tbody.innerHTML = "";
+      thead.innerHTML = "<th>Date</th>";
 
-  const participants = responsesList.map(r => r.user_name);
-  participants.forEach(name => {
-    thead.innerHTML += `<th>${name}</th>`;
-  });
-  thead.innerHTML += "<th>Jour parfait</th>";   // ✅ colonne ajoutée
+      const participants = responsesList.map(r => r.user_name);
+      participants.forEach(name => { thead.innerHTML += `<th>${name}</th>`; });
+      thead.innerHTML += "<th>Jour parfait</th>";  // ← colonne ajoutée
 
-  const dates = rangeDates(startDate, endDate);
-  dates.forEach(date => {
-    const key = iso(date);
-    const row = document.createElement("tr");
-    if (isMuted(date)) row.classList.add("muted");
+      const dates = rangeDates(startDate, endDate);
 
-    let cells = `<td>${fmt(date)}</td>`;
-    let allAvailable = true;
+      dates.forEach(d => {
+        const key = iso(d);
+        const row = document.createElement("tr");
+        if (isMuted(d)) row.classList.add("muted");
 
-    responsesList.forEach(r => {
-      const val = r.responses[key];
-      let symbol = "";
-      if (val === "available") symbol = "✅";
-      else if (val === "maybe") { symbol = "❓"; allAvailable = false; }
-      else if (val === "unavailable" || !val) { symbol = "❌"; allAvailable = false; }
-      cells += `<td>${symbol}</td>`;
-    });
+        let cells = `<td>${fmt(d)}</td>`;
+        let allAvailable = true;
 
-    // ajout de la dernière cellule
-    const perfect = (!isMuted(date) && responsesList.length > 0 && allAvailable);
-    cells += `<td>${perfect ? "🌟" : ""}</td>`;
+        responsesList.forEach(r => {
+          const val = r.responses?.[key];
+          let symbol = "";
+          if (val === "available") symbol = "✅";
+          else if (val === "maybe") { symbol = "❓"; allAvailable = false; }
+          else if (val === "unavailable" || !val) { symbol = "❌"; allAvailable = false; }
+          cells += `<td>${symbol}</td>`;
+        });
 
-    row.innerHTML = cells;
-    tbody.appendChild(row);
-  });
+        const perfect = (!isMuted(d) && responsesList.length > 0 && allAvailable);
+        cells += `<td>${perfect ? "🌟" : ""}</td>`;
 
-  document.getElementById("meta").textContent =
-    `Sondage : ${SURVEY_SLUG} — ${participants.length} participants`;
-}
+        row.innerHTML = cells;
+        tbody.appendChild(row);
+      });
 
-    async function init() {
-      await getSurvey();
-      const responses = await getAllResponses();
-      buildTable(responses);
+      document.getElementById("meta").textContent =
+        `Sondage : ${SURVEY_SLUG} — ${participants.length} participants`;
     }
 
+    async function init(){
+      await getSurvey();
+      const list = await getAllResponses();
+      buildTable(list);
+    }
     init();
   </script>
 </body>
