@@ -21,115 +21,88 @@
   </style>
 
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  <script>
-    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";   // ← même URL que dans index.html
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";                 // ← même clé que dans index.html
-    const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "nov-2025";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  </script>
-</head>
-<body>
-  <div class="container">
-    <div class="topbar">
-      <h1>🧮 Récapitulatif des disponibilités</h1>
-      <a class="btn" href="./">↩️ Retour au formulaire</a>
-    </div>
-    <div id="meta" style="margin:8px 0; color:#2c3e50;"></div>
+<script>
+  const SUPABASE_URL = "https://xxxxx.supabase.co";   // même URL que dans index.html
+  const SUPABASE_ANON_KEY = "eyJ...";                 // même clé que dans index.html
+  const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "nov-2025";
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    <table id="tbl">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>✓ Disponibles</th>
-          <th>? Peut-être</th>
-          <th>Total répondants</th>
-          <th>Parfait</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
-  </div>
+  let nonVotingDays = [];
+  let startDate, endDate;
 
-  <script>
-    let nonVotingDays = [];
-    let startDate, endDate;
+  function rangeDates(start, end){
+    const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out;
+  }
+  function fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` }
+  function iso(d){ return d.toISOString().slice(0,10) }
+  function isMuted(d){ return nonVotingDays.includes(iso(d)) }
 
-    function rangeDates(start, end){
-      const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out;
-    }
-    function fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` }
-    function iso(d){ return d.toISOString().slice(0,10) }
-    function isMuted(d){ return nonVotingDays.includes(iso(d)) }
+  async function getSurvey(){
+    const { data, error } = await supabase
+      .from("surveys")
+      .select("id, start_date, end_date, non_voting_days")
+      .eq("slug", SURVEY_SLUG)
+      .single();
+    if (error) throw error;
+    nonVotingDays = (data.non_voting_days || []).map(x=>x.toString());
+    startDate = new Date(data.start_date);
+    endDate   = new Date(data.end_date);
+    return data.id;
+  }
 
-    async function getSurvey(){
-      const { data, error } = await supabase
-        .from("surveys")
-        .select("id, start_date, end_date, non_voting_days")
-        .eq("slug", SURVEY_SLUG)
-        .single();
-      if (error) throw error;
-      nonVotingDays = (data.non_voting_days || []).map(x=>x.toString());
-      startDate = new Date(data.start_date);
-      endDate   = new Date(data.end_date);
-      return data.id;
-    }
+  async function getAllResponses(){
+    const { data, error } = await supabase
+      .from("submissions_simple")
+      .select("user_name, responses")
+      .eq("survey_id", SURVEY_ID);
+    if (error) throw error;
+    return data || [];
+  }
 
-    async function getAllResponses(){
-      const { data, error } = await supabase
-        .from("public_survey_results")
-        .select("responses")
-        .eq("slug", SURVEY_SLUG);
-      if (error) throw error;
-      return data.map(r => r.responses || {});
-    }
+  function buildTable(responsesList){
+    const tbody = document.getElementById("tbody");
+    tbody.innerHTML = "";
+    const participants = responsesList.length;
 
-    function buildTable(responsesList){
-      const tbody = document.getElementById("tbody");
-      tbody.innerHTML = "";
-      const participants = responsesList.length;
+    const dates = rangeDates(startDate, endDate);
 
-      // Agrégat par date
-      const counts = {}; // { 'YYYY-MM-DD': {a: nb available, m: nb maybe} }
-      const dates = rangeDates(startDate, endDate);
-      dates.forEach(d => counts[iso(d)] = { a:0, m:0 });
+    // 1. En-têtes dynamiques : une colonne par participant
+    const thead = document.querySelector("#tbl thead tr");
+    thead.innerHTML = "<th>Date</th>";
+    responsesList.forEach(p => { thead.innerHTML += `<th>${p.user_name || "?"}</th>`; });
 
-      responsesList.forEach(resp => {
-        Object.entries(resp).forEach(([d, v]) => {
-          if (!counts[d]) counts[d] = { a:0, m:0 };
-          if (v === "available") counts[d].a++;
-          else if (v === "maybe") counts[d].m++;
-        });
+    // 2. Contenu
+    dates.forEach(d => {
+      const key = iso(d);
+      const row = document.createElement("tr");
+      if (isMuted(d)) row.classList.add("muted");
+
+      let line = `<td>${fmt(d)}</td>`;
+      responsesList.forEach(p => {
+        const v = p.responses[key];
+        let symbol = "";
+        if (v === "available") symbol = "✅";
+        else if (v === "maybe") symbol = "❓";
+        else if (v === "unavailable") symbol = "❌";
+        line += `<td>${symbol}</td>`;
       });
 
-      dates.forEach(d => {
-        const key = iso(d);
-        const row = document.createElement("tr");
-        if (isMuted(d)) row.classList.add("muted");
+      row.innerHTML = line;
+      tbody.appendChild(row);
+    });
 
-        const a = counts[key]?.a || 0;
-        const m = counts[key]?.m || 0;
-        const perfect = (!isMuted(d) && participants>0 && a === participants);
+    document.getElementById("meta").textContent =
+      `Sondage: ${SURVEY_SLUG} — ${participants} participants`;
+  }
 
-        row.innerHTML = `
-          <td>${fmt(d)}</td>
-          <td><span class="tag tag-ok">${a}</span></td>
-          <td><span class="tag tag-maybe">${m}</span></td>
-          <td>${participants}</td>
-          <td>${perfect ? "🌟" : ""}</td>
-        `;
-        tbody.appendChild(row);
-      });
+  let SURVEY_ID;
 
-      document.getElementById("meta").textContent =
-        `Sondage: ${SURVEY_SLUG} — Répondants: ${participants}`;
-    }
-
-    async function init(){
-      await getSurvey();
-      const list = await getAllResponses();
-      buildTable(list);
-    }
-    init();
-  </script>
+  async function init(){
+    SURVEY_ID = await getSurvey();
+    const list = await getAllResponses();
+    buildTable(list);
+  }
+  init();
+</script>
 </body>
 </html>
