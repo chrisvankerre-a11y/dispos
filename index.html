@@ -53,11 +53,18 @@
       <input id="userName" class="name-input" placeholder="Votre nom et prénom">
     </div>
 
-    <div style="margin:12px 0;display:flex;gap:8px;flex-wrap:wrap;">
-      <button onclick="saveToSupabase()" class="save-btn">💾 Enregistrer</button>
-      <a href="recap.html?survey=nov-2025" class="save-btn" style="background:#6c757d;text-decoration:none;">🔗 Voir le récap</a>
-      <button onclick="deleteMySubmission()" class="save-btn" style="background:#e74c3c;">🗑️ Effacer mes réponses</button>
-    </div>
+   <div style="margin:12px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button onclick="saveToSupabase()" class="save-btn">💾 Enregistrer</button>
+    <button onclick="deleteMySubmission()" class="save-btn" style="background:#e74c3c;">🗑️ Effacer mes réponses</button>
+  </div>
+  <a href="recap.html?survey=nov-2025"
+     class="save-btn"
+     style="background:#16a085;text-decoration:none;font-weight:bold;">
+     📊 Voir le récap
+  </a>
+</div>
+
 
     <div class="auto-fill-buttons" style="margin: 12px 0; display:flex; gap:8px; flex-wrap:wrap;">
       <button class="auto-btn auto-available" onclick="fillAll('available')">✅ Tout Disponible</button>
