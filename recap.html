@@ -11,20 +11,24 @@
     table{border-collapse:collapse;width:100%;min-width:800px;margin-top:20px}
     th,td{border:1px solid #ddd;padding:10px;text-align:center}
     th{background:#34495e;color:#fff}
-    .muted{background:#ecf0f1;color:#7f8c8d}
     .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}
     a.btn{background:#6c757d;color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px}
     .footer-btn{margin-top:20px;text-align:right;}
     .reset-btn{background:#bdc3c7;color:#2c3e50;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;}
     .reset-btn:hover{background:#95a5a6;}
+    .meta-line{color:#2c3e50;margin:6px 0;}
   </style>
 
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
-    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";   // ← même URL que dans index.html
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";                 // ← même clé que dans index.html
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
     const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "nov-2025";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabase = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY,
+      { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+    );
   </script>
 </head>
 <body>
@@ -34,10 +38,10 @@
       <a class="btn" href="./">↩️ Retour au formulaire</a>
     </div>
 
-    <div id="meta" style="margin:8px 0; color:#2c3e50;"></div>
+    <div id="meta" class="meta-line"></div>
 
     <table id="tbl">
-      <thead><tr></tr></thead>
+      <thead><tr id="theadRow"></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
 
@@ -48,26 +52,31 @@
 
   <script>
     let startDate, endDate, SURVEY_ID;
-    const nonVotingDays = [];
+    let timeSlots = [];
 
     function rangeDates(start, end){
       const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out;
     }
     function fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` }
     function iso(d){ return d.toISOString().slice(0,10) }
-    function isMuted(d){ return nonVotingDays.includes(iso(d)) }
+    function slotKey(dateIso, s){ return `${dateIso}|${s.start}-${s.end}`; }
 
     async function getSurvey(){
       const { data, error } = await supabase
         .from("surveys")
-        .select("id, start_date, end_date, non_voting_days")
+        .select("id, start_date, end_date, time_slots, slug, title")
         .eq("slug", SURVEY_SLUG)
         .single();
       if (error) throw error;
       startDate = new Date(data.start_date);
       endDate   = new Date(data.end_date);
-      (data.non_voting_days || []).forEach(x => nonVotingDays.push(String(x)));
+      timeSlots = Array.isArray(data.time_slots) ? data.time_slots : [];
       SURVEY_ID = data.id;
+      const slotTxt = (timeSlots && timeSlots.length)
+        ? timeSlots.map(s=>`${s.start}–${s.end}`).join(" | ")
+        : "Journée entière";
+      document.getElementById("meta").textContent =
+        `Sondage : ${data.slug} — Période ${data.start_date} → ${data.end_date} — Créneaux : ${slotTxt}`;
     }
 
     async function getAllResponses(){
@@ -80,45 +89,43 @@
     }
 
     function buildTable(responsesList){
-      const tbl   = document.getElementById("tbl");
-      const thead = tbl.querySelector("thead tr");
+      const theadRow = document.getElementById("theadRow");
       const tbody = document.getElementById("tbody");
-
+      theadRow.innerHTML = "";
       tbody.innerHTML = "";
-      thead.innerHTML = "<th>Date</th>";
 
+      // En-têtes
+      theadRow.innerHTML = "<th>Date / Créneau</th>";
       const participants = responsesList.map(r => r.user_name);
-      participants.forEach(name => { thead.innerHTML += `<th>${name}</th>`; });
-      thead.innerHTML += "<th>Jour parfait</th>";
+      participants.forEach(name => { theadRow.innerHTML += `<th>${name}</th>`; });
+      theadRow.innerHTML += "<th>Créneau parfait</th>";
 
       const dates = rangeDates(startDate, endDate);
+      const slots = (timeSlots && timeSlots.length) ? timeSlots : [{start:'', end:''}];
 
       dates.forEach(d => {
-        const key = iso(d);
-        const row = document.createElement("tr");
-        if (isMuted(d)) row.classList.add("muted");
+        const dIso = iso(d);
+        slots.forEach(s=>{
+          const row = document.createElement("tr");
+          const key = slotKey(dIso, s);
+          let cells = `<td>${fmt(d)}${s.start?` — ${s.start}–${s.end}`:''}</td>`;
+          let allAvailable = true;
 
-        let cells = `<td>${fmt(d)}</td>`;
-        let allAvailable = true;
+          responsesList.forEach(r => {
+            const val = r.responses?.[key];
+            let symbol = "";
+            if (val === "available") symbol = "✅";
+            else if (val === "maybe") { symbol = "❓"; allAvailable = false; }
+            else { symbol = "❌"; allAvailable = false; }
+            cells += `<td>${symbol}</td>`;
+          });
 
-        responsesList.forEach(r => {
-          const val = r.responses?.[key];
-          let symbol = "";
-          if (val === "available") symbol = "✅";
-          else if (val === "maybe") { symbol = "❓"; allAvailable = false; }
-          else if (val === "unavailable" || !val) { symbol = "❌"; allAvailable = false; }
-          cells += `<td>${symbol}</td>`;
+          const perfect = (responsesList.length > 0 && allAvailable);
+          cells += `<td>${perfect ? "🌟" : ""}</td>`;
+          row.innerHTML = cells;
+          tbody.appendChild(row);
         });
-
-        const perfect = (!isMuted(d) && responsesList.length > 0 && allAvailable);
-        cells += `<td>${perfect ? "🌟" : ""}</td>`;
-
-        row.innerHTML = cells;
-        tbody.appendChild(row);
       });
-
-      document.getElementById("meta").textContent =
-        `Sondage : ${SURVEY_SLUG} — ${participants.length} participants`;
     }
 
     async function resetAll(){
@@ -129,7 +136,7 @@
         .eq("survey_id", SURVEY_ID);
       if (error) return alert("Erreur : " + error.message);
       alert("🧹 Toutes les réponses ont été effacées.");
-      init(); // recharge le tableau vide
+      init();
     }
 
     async function init(){
