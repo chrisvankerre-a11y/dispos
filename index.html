@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mes Disponibilités - Novembre 2025</title>
+  <title>Mes Disponibilités</title>
   <style>
     body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; }
     .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -25,46 +25,126 @@
     table { border-collapse: collapse; width: 100%; min-width: 800px; }
     th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
     th { background-color: #34495e; color: white; }
-    .non-voting-day { background-color: #ecf0f1; color: #7f8c8d; }
     .name-input { padding: 10px; font-size: 16px; border: 2px solid #ddd; border-radius: 5px; width: 300px; margin: 10px 0; }
+
+    /* Admin */
+    .admin-login { display:flex; gap:8px; align-items:center; margin: 8px 0 14px; }
+    .admin-login input { padding:8px; border:1px solid #ccc; border-radius:6px; }
+    .admin-login .btn { background:#6c757d; color:#fff; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; }
+    .admin-login .btn:hover{ opacity:.9; }
+
+    details.admin { margin: 12px 0 16px; border: 1px dashed #95a5a6; border-radius: 8px; padding: 10px; background:#fafafa; }
+    .admin-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-top:10px; }
+    .admin-grid label { font-size:12px; color:#2c3e50; }
+    .admin-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .btn-secondary { background:#6c757d; color:#fff; padding:8px 12px; border:none; border-radius:6px; cursor:pointer; }
+    .btn-secondary:hover { opacity:.9; }
+
+    .slots { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+    .slot-row { display:flex; gap:8px; align-items:center; }
+    .slot-row input[type="time"]{ padding:6px; }
+    .slot-row button { background:#bdc3c7; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
+    .slot-row button:hover { background:#95a5a6; }
   </style>
 
-  <!-- Supabase -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
-    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";   // ← remplace
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";                 // ← remplace
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
     const SURVEY_SLUG = "nov-2025";
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabase = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY,
+      { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+    );
 
-    let SURVEY_ID = null;              // sera créé/trouvé automatiquement
-    let userSelections = {};           // { "YYYY-MM-DD": "available" | "maybe" | "unavailable" }
+    // État global
+    let SURVEY_ID = null;
+    let START_DATE = null;
+    let END_DATE = null;
+    let TIME_SLOTS = [];          // [{start:"09:00", end:"12:00"}, ...]
+    let ADMIN_HASH = null;        // hash du mot de passe en base
+    let isAdmin = false;
 
-    // Jours à griser (déjà présents dans ton ancien fichier)
-    const nonVotingDays = ["2025-11-01","2025-11-02","2025-11-08","2025-11-09","2025-11-11","2025-11-15","2025-11-16"];
+    let userSelections = {}; // { "YYYY-MM-DD|HH:MM-HH:MM": "available"|"maybe"|"unavailable" }
+
+    // Utils
+    const iso = d => d.toISOString().split('T')[0];
+    const parseISO = s => new Date(s + 'T00:00:00');
+    const rangeDates = (startStr, endStr) => {
+      const out=[]; const start=parseISO(startStr), end=parseISO(endStr);
+      for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d));
+      return out;
+    };
+    async function sha256Hex(str){
+      const enc = new TextEncoder().encode(str);
+      const buf = await crypto.subtle.digest('SHA-256', enc);
+      return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
   </script>
 </head>
 <body>
   <div class="container">
-    <h1>📅 Mes Disponibilités - Novembre 2025</h1>
+    <h1>📅 Mes Disponibilités</h1>
+
+    <!-- Login Admin -->
+    <div class="admin-login">
+      <input id="adminPwd" type="password" placeholder="Mot de passe admin">
+      <button class="btn" id="adminBtn">Activer Admin</button>
+      <span id="adminStatus" style="color:#2c3e50;"></span>
+    </div>
+
+    <!-- Panneau Admin (caché tant qu’on n’est pas connecté) -->
+    <details class="admin" id="adminPanel" style="display:none;">
+      <summary>⚙️ Mode administrateur — Période, créneaux, mot de passe</summary>
+
+      <div class="admin-grid">
+        <div>
+          <label for="admStart">Début de période</label>
+          <input type="date" id="admStart">
+        </div>
+        <div>
+          <label for="admEnd">Fin de période</label>
+          <input type="date" id="admEnd">
+        </div>
+      </div>
+
+      <div style="margin-top:10px;">
+        <strong>Créneaux journaliers</strong>
+        <div id="slots" class="slots"></div>
+        <button class="btn-secondary" type="button" onclick="addSlot()">+ Ajouter un créneau</button>
+      </div>
+
+      <div style="margin-top:10px;">
+        <strong>Mot de passe admin</strong>
+        <div class="slot-row">
+          <input type="password" id="newAdminPwd" placeholder="Nouveau mot de passe">
+          <button type="button" onclick="setAdminPassword()">Mettre à jour le mot de passe</button>
+        </div>
+        <small>Le mot de passe est stocké côté base sous forme d’empreinte (SHA-256) générée automatiquement par cette page.</small>
+      </div>
+
+      <div class="admin-actions">
+        <button class="btn-secondary" type="button" onclick="applyAdminSettings()">Appliquer au sondage</button>
+        <button class="btn-secondary" type="button" onclick="pullSurvey()">Recharger depuis la base</button>
+        <a class="btn-secondary" href="recap.html?survey=nov-2025">📊 Ouvrir le récap</a>
+      </div>
+    </details>
 
     <div style="margin:12px 0;">
       <input id="userName" class="name-input" placeholder="Votre nom et prénom">
     </div>
 
-   <div style="margin:12px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
-  <div style="display:flex;gap:8px;flex-wrap:wrap;">
-    <button onclick="saveToSupabase()" class="save-btn">💾 Enregistrer</button>
-    <button onclick="deleteMySubmission()" class="save-btn" style="background:#e74c3c;">🗑️ Effacer mes réponses</button>
-  </div>
-  <a href="recap.html?survey=nov-2025"
-     class="save-btn"
-     style="background:#16a085;text-decoration:none;font-weight:bold;">
-     📊 Voir le récap
-  </a>
-</div>
-
+    <div style="margin:12px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="saveToSupabase()" class="save-btn">💾 Enregistrer</button>
+        <button onclick="deleteMySubmission()" class="save-btn" style="background:#e74c3c;">🗑️ Effacer mes réponses</button>
+      </div>
+      <a href="recap.html?survey=nov-2025" class="save-btn" style="background:#16a085;text-decoration:none;font-weight:bold;">
+        📊 Voir le récap
+      </a>
+    </div>
 
     <div class="auto-fill-buttons" style="margin: 12px 0; display:flex; gap:8px; flex-wrap:wrap;">
       <button class="auto-btn auto-available" onclick="fillAll('available')">✅ Tout Disponible</button>
@@ -80,81 +160,128 @@
 
     <div class="calendar">
       <table id="availabilityTable">
-        <thead><tr><th>Date</th><th>Disponibilité</th></tr></thead>
+        <thead><tr id="theadRow"></tr></thead>
         <tbody id="tableBody"></tbody>
       </table>
     </div>
   </div>
 
   <script>
-    // --------- Génération des dates / tableau ---------
-    function generateNovemberDates() {
-      const dates = [];
-      const startDate = new Date('2025-11-01');
-      const endDate = new Date('2025-11-21');
-      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate()+1)) dates.push(new Date(d));
-      return dates;
-    }
-    function isNonVotingDay(date){ return nonVotingDays.includes(date.toISOString().split('T')[0]); }
-
-    function createAvailabilityTable(){
-      const tbody = document.getElementById('tableBody'); tbody.innerHTML='';
-      const dates = generateNovemberDates();
-      dates.forEach(date=>{
-        const tr=document.createElement('tr');
-        const dateString=date.toISOString().split('T')[0];
-
-        const tdDate=document.createElement('td');
-        tdDate.textContent=`${date.getDate()}/${date.getMonth()+1}/${date.getFullYear()}`;
-        if(isNonVotingDay(date)) tdDate.classList.add('non-voting-day');
-        tr.appendChild(tdDate);
-
-        const tdAvail=document.createElement('td');
-        if(isNonVotingDay(date)){
-          tdAvail.classList.add('non-voting-day');
-          tdAvail.innerHTML='<span style="color:#7f8c8d;">Non disponible</span>';
-        } else {
-          const types=[{v:'available',s:'✓',c:'available'},{v:'unavailable',s:'✗',c:'unavailable'},{v:'maybe',s:'?',c:'maybe'}];
-          types.forEach(t=>{
-            const label=document.createElement('label');
-            const input=document.createElement('input');
-            input.type='radio'; input.name=`availability-${dateString}`; input.value=t.v;
-            input.onchange=()=>userSelections[dateString]=t.v;
-            if(userSelections[dateString]===t.v) input.checked=true;
-
-            const span=document.createElement('span');
-            span.classList.add('availability-option',t.c); span.textContent=t.s;
-            label.appendChild(input); label.appendChild(span);
-            tdAvail.appendChild(label);
-          });
-        }
-        tr.appendChild(tdAvail); tbody.appendChild(tr);
+    // ---- Rendu Admin (créneaux)
+    function renderSlotsEditor(){
+      const wrap = document.getElementById('slots'); wrap.innerHTML='';
+      const list = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'09:00', end:'12:00'}];
+      TIME_SLOTS = JSON.parse(JSON.stringify(list));
+      TIME_SLOTS.forEach((s,idx)=>{
+        const row = document.createElement('div'); row.className='slot-row';
+        row.innerHTML = `
+          <input type="time" value="${s.start}" data-idx="${idx}" data-kind="start">
+          <span>→</span>
+          <input type="time" value="${s.end}" data-idx="${idx}" data-kind="end">
+          <button type="button" data-idx="${idx}" class="rm">Supprimer</button>
+        `;
+        wrap.appendChild(row);
+      });
+      wrap.querySelectorAll('input[type="time"]').forEach(inp=>{
+        inp.onchange = (e)=>{
+          const i = +e.target.dataset.idx, k=e.target.dataset.kind, v=e.target.value;
+          TIME_SLOTS[i][k]=v;
+          createAvailabilityTable();
+        };
+      });
+      wrap.querySelectorAll('button.rm').forEach(btn=>{
+        btn.onclick = ()=>{
+          const i = +btn.dataset.idx;
+          TIME_SLOTS.splice(i,1);
+          if(TIME_SLOTS.length===0) TIME_SLOTS.push({start:'09:00', end:'12:00'});
+          renderSlotsEditor();
+          createAvailabilityTable();
+        };
       });
     }
-
-    function fillAll(status){
-      generateNovemberDates().forEach(date=>{
-        if(!isNonVotingDay(date)) userSelections[date.toISOString().split('T')[0]]=status;
-      });
+    function addSlot(){
+      if(!Array.isArray(TIME_SLOTS)) TIME_SLOTS=[];
+      TIME_SLOTS.push({start:'14:00', end:'17:00'});
+      renderSlotsEditor();
       createAvailabilityTable();
     }
 
-    // --------- Supabase : création auto du sondage + CRUD simple ---------
-    async function ensureSurvey() {
-      // 1) Cherche le sondage
-      let { data, error } = await supabase
+    // ---- Tableau
+    function slotKey(dateIso, slot){ return `${dateIso}|${slot.start}-${slot.end}`; }
+
+    function createAvailabilityTable(){
+      const theadRow = document.getElementById('theadRow');
+      const tbody = document.getElementById('tableBody');
+      theadRow.innerHTML = '';
+      tbody.innerHTML = '';
+      if (!START_DATE || !END_DATE) return;
+
+      const headDate = document.createElement('th'); headDate.textContent='Date'; theadRow.appendChild(headDate);
+      const slots = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'',end:''}];
+      slots.forEach(s=>{
+        const th = document.createElement('th');
+        th.textContent = (s.start && s.end) ? `${s.start} – ${s.end}` : 'Journée';
+        theadRow.appendChild(th);
+      });
+
+      rangeDates(START_DATE, END_DATE).forEach(date=>{
+        const dateIso = iso(date);
+        const tr = document.createElement('tr');
+
+        const tdDate = document.createElement('td');
+        tdDate.textContent = `${date.getDate()}/${date.getMonth()+1}/${date.getFullYear()}`;
+        tr.appendChild(tdDate);
+
+        slots.forEach(slot=>{
+          const td = document.createElement('td');
+          const key = slotKey(dateIso, slot);
+          const types = [
+            { v: 'available', s: '✓', c: 'available' },
+            { v: 'unavailable', s: '✗', c: 'unavailable' },
+            { v: 'maybe', s: '?', c: 'maybe' }
+          ];
+          types.forEach(t=>{
+            const label=document.createElement('label');
+            const input=document.createElement('input');
+            input.type='radio'; input.name=`availability-${key}`; input.value=t.v;
+            input.onchange=()=>{ userSelections[key]=t.v; };
+            if(userSelections[key]===t.v) input.checked=true;
+            const span=document.createElement('span'); span.classList.add('availability-option',t.c); span.textContent=t.s;
+            label.appendChild(input); label.appendChild(span);
+            td.appendChild(label);
+          });
+          tr.appendChild(td);
+        });
+
+        tbody.appendChild(tr);
+      });
+
+      // sync champs admin
+      const aS = document.getElementById('admStart'); if(aS && START_DATE) aS.value=START_DATE;
+      const aE = document.getElementById('admEnd'); if(aE && END_DATE) aE.value=END_DATE;
+    }
+
+    // ---- Supabase
+    function applySurveyState(s) {
+      SURVEY_ID = s.id;
+      START_DATE = s.start_date;
+      END_DATE = s.end_date;
+      TIME_SLOTS = Array.isArray(s.time_slots) ? s.time_slots : [];
+      ADMIN_HASH = s.admin_password_hash || null;
+      renderSlotsEditor();
+    }
+
+    async function ensureSurvey(){
+      const { data, error } = await supabase
         .from('surveys')
-        .select('id')
+        .select('id, slug, start_date, end_date, time_slots, admin_password_hash')
         .eq('slug', SURVEY_SLUG)
         .maybeSingle();
 
       if (!data) {
-        // 2) S'il n'existe pas : le créer à partir des dates déjà définies dans la page
-        const all = generateNovemberDates();
-        const start = all.length ? all[0].toISOString().slice(0,10) : '2025-11-01';
-        const end   = all.length ? all[all.length-1].toISOString().slice(0,10) : '2025-11-21';
-        const nvd   = (Array.isArray(nonVotingDays) ? nonVotingDays : []).map(String);
-
+        const today = new Date();
+        const start = iso(today);
+        const end = iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 14));
         const ins = await supabase
           .from('surveys')
           .insert({
@@ -162,22 +289,101 @@
             title: `Disponibilités – ${SURVEY_SLUG}`,
             start_date: start,
             end_date: end,
-            non_voting_days: nvd
+            time_slots: [{start:'09:00', end:'12:00'}, {start:'14:00', end:'17:00'}]
           })
-          .select('id')
+          .select('id, start_date, end_date, time_slots, admin_password_hash')
           .single();
         if (ins.error) { alert(ins.error.message); throw ins.error; }
-        data = ins.data;
+        applySurveyState(ins.data);
+      } else {
+        applySurveyState(data);
       }
-      SURVEY_ID = data.id;
     }
 
+    async function pullSurvey(){
+      await ensureSurvey();
+      createAvailabilityTable();
+    }
+
+    // ---- Admin
+    async function tryAdminLogin(){
+      const pwd = document.getElementById('adminPwd').value || '';
+      const status = document.getElementById('adminStatus');
+      if (!ADMIN_HASH) {
+        isAdmin = true;
+        status.textContent = "Aucun mot de passe défini (admin libre).";
+      } else {
+        const h = await sha256Hex(pwd);
+        if (h === ADMIN_HASH) {
+          isAdmin = true;
+          status.textContent = "Admin activé ✅";
+        } else {
+          isAdmin = false;
+          status.textContent = "Mot de passe incorrect.";
+        }
+      }
+      document.getElementById('adminPanel').style.display = isAdmin ? 'block' : 'none';
+    }
+
+    async function setAdminPassword(){
+      if (!isAdmin) return alert("Mode admin requis.");
+      const pwd = document.getElementById('newAdminPwd').value;
+      const hash = pwd ? await sha256Hex(pwd) : null;
+      const { data, error } = await supabase
+        .from('surveys')
+        .update({ admin_password_hash: hash })
+        .eq('id', SURVEY_ID)
+        .select('admin_password_hash')
+        .maybeSingle();
+      if (error) return alert(error.message);
+      ADMIN_HASH = data?.admin_password_hash || null;
+      alert(hash ? "✅ Mot de passe mis à jour." : "🔓 Mot de passe supprimé (admin libre).");
+    }
+
+    async function applyAdminSettings(){
+      if (!isAdmin) return alert("Mode admin requis.");
+      if (!SURVEY_ID) await ensureSurvey();
+      const start = document.getElementById('admStart').value;
+      const end   = document.getElementById('admEnd').value;
+      if (!start || !end) return alert("Veuillez choisir une date de début et de fin.");
+      if (new Date(start) > new Date(end)) return alert("La date de début doit précéder la date de fin.");
+      TIME_SLOTS = (TIME_SLOTS||[]).filter(s=>s && s.start && s.end);
+
+      const { data, error } = await supabase
+        .from('surveys')
+        .update({ start_date: start, end_date: end, time_slots: TIME_SLOTS })
+        .eq('id', SURVEY_ID)
+        .select('id, start_date, end_date, time_slots, admin_password_hash')
+        .maybeSingle();
+      if (error) return alert(error.message);
+      if (data) applySurveyState(data);
+
+      await pullSurvey();
+      userSelections = {};
+      createAvailabilityTable();
+      alert("✅ Période et créneaux mis à jour.");
+    }
+
+    // ---- Participants
     function buildResponsesJSON(){
       const out={};
-      for(const [d,v] of Object.entries(userSelections||{})){
-        if(v && v!=='unavailable') out[d]=v;
+      for(const [k,v] of Object.entries(userSelections||{})){
+        if (v && v!=='unavailable') out[k]=v;
       }
       return out;
+    }
+
+    function fillAll(status){
+      if (!START_DATE || !END_DATE) return;
+      const slots = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'',end:''}];
+      rangeDates(START_DATE, END_DATE).forEach(date=>{
+        const d = iso(date);
+        slots.forEach(s=>{
+          const key = slotKey(d,s);
+          userSelections[key]=status;
+        });
+      });
+      createAvailabilityTable();
     }
 
     async function preloadByName(){
@@ -189,8 +395,10 @@
         .eq('survey_id', SURVEY_ID)
         .eq('user_name', name)
         .maybeSingle();
-      if (error) return;
-      if (data?.responses) { userSelections = data.responses; createAvailabilityTable(); }
+      if (!error && data?.responses) {
+        userSelections = data.responses;
+        createAvailabilityTable();
+      }
     }
 
     async function saveToSupabase(){
@@ -203,13 +411,15 @@
 
       const { error } = await supabase
         .from('submissions_simple')
-        .upsert({
-          survey_id: SURVEY_ID,
-          user_name: name,
-          responses,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'survey_id,user_name' });
-
+        .upsert(
+          {
+            survey_id: SURVEY_ID,
+            user_name: name,
+            responses,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'survey_id,user_name' }
+        );
       if (error) return alert(error.message);
       alert("✅ Réponses enregistrées !");
     }
@@ -225,19 +435,20 @@
         .delete()
         .eq('survey_id', SURVEY_ID)
         .eq('user_name', name);
-
       if (error) return alert(error.message);
       userSelections = {};
       createAvailabilityTable();
       alert("🗑️ Réponses effacées.");
     }
 
-    // --------- Init ---------
+    // ---- Init
     document.addEventListener('DOMContentLoaded', async ()=>{
-      await ensureSurvey();          // crée ou récupère le sondage automatiquement
-      createAvailabilityTable();     // affiche le tableau
+      await ensureSurvey();
+      createAvailabilityTable();
+      document.getElementById('adminBtn')?.addEventListener('click', tryAdminLogin);
       const i = document.getElementById('userName');
-      if (i) i.addEventListener('blur', preloadByName); // recharge si le nom existe déjà
+      if (i) i.addEventListener('blur', preloadByName);
+      if (!ADMIN_HASH) document.getElementById('adminStatus').textContent = "Aucun mot de passe défini (admin libre).";
     });
   </script>
 </body>
