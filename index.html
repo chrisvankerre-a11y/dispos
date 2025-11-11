@@ -289,21 +289,54 @@
     async function pullSurvey(){ await ensureSurvey(); createAvailabilityTable(); }
 
     // ---- Admin
-    async function tryAdminLogin(){
-      const pwd = document.getElementById('adminPwd').value || '';
-      const status = document.getElementById('adminStatus');
-      if (!ADMIN_HASH) { isAdmin=true; status.textContent="Admin libre (aucun mot de passe)"; }
-      else { const h=await sha256Hex(pwd); isAdmin = (h===ADMIN_HASH); status.textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect."; }
-      document.getElementById('adminPanel').style.display = isAdmin ? 'block' : 'none';
-    }
+async function tryAdminLogin(){
+  const pwd = document.getElementById('adminPwd').value || '';
+  const status = document.getElementById('adminStatus');
+
+  if (!ADMIN_HASH) {
+    // ⚠️ Rien n’est défini pour cette session : exiger d’abord la définition du mot de passe
+    isAdmin = false;
+    status.textContent = "Aucun mot de passe défini. Créez-en un d'abord ci-dessous.";
+    document.getElementById('adminPanel').style.display = 'none';
+    return;
+  }
+
+  const h = await sha256Hex(pwd);
+  if (h === ADMIN_HASH) {
+    isAdmin = true;
+    status.textContent = "Admin activé ✅";
+    document.getElementById('adminPanel').style.display = 'block';
+  } else {
+    isAdmin = false;
+    status.textContent = "Mot de passe incorrect.";
+    document.getElementById('adminPanel').style.display = 'none';
+  }
+}
+
     async function setAdminPassword(){
-      if (!isAdmin) return alert("Mode admin requis.");
-      const pwd=document.getElementById('newAdminPwd').value; const hash=pwd?await sha256Hex(pwd):null;
-      const up = await supabase.from('surveys').update({ admin_password_hash:hash }).eq('id', SURVEY_ID).select('admin_password_hash').maybeSingle();
-      if (up.error) return alert(up.error.message);
-      ADMIN_HASH=up.data?.admin_password_hash||null;
-      alert(hash ? "✅ Mot de passe mis à jour." : "🔓 Mot de passe supprimé (admin libre).");
-    }
+  // Autorisé si (isAdmin) OU (aucun mot de passe encore défini => première définition)
+  if (!isAdmin && ADMIN_HASH) return alert("Mode admin requis.");
+
+  const pwd = document.getElementById('newAdminPwd').value.trim();
+  if (!pwd) return alert("Entrez un mot de passe.");
+
+  const hash = await sha256Hex(pwd);
+  const { data, error } = await supabase
+    .from('surveys')
+    .update({ admin_password_hash: hash })
+    .eq('id', SURVEY_ID)
+    .select('admin_password_hash')
+    .maybeSingle();
+
+  if (error) return alert(error.message);
+  ADMIN_HASH = data?.admin_password_hash || null;
+
+  // Après première définition, exiger un login normal
+  isAdmin = false;
+  document.getElementById('adminStatus').textContent = "Mot de passe défini. Veuillez vous (re)connecter.";
+  document.getElementById('adminPanel').style.display = 'none';
+}
+
     async function applyAdminSettings(){
       if (!isAdmin) return alert("Mode admin requis.");
       if (!SURVEY_ID) await ensureSurvey();
