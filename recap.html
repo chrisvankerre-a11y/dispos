@@ -13,14 +13,20 @@
     th{background:#34495e;color:#fff}
     .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}
     a.btn{background:#6c757d;color:#fff;text-decoration:none;padding:8px 12px;border-radius:6px}
-    .footer-btn{margin-top:20px;text-align:right;}
+    .footer-btn{margin-top:20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
     .reset-btn{background:#bdc3c7;color:#2c3e50;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;}
     .reset-btn:hover{background:#95a5a6;}
     .meta-line{color:#2c3e50;margin:6px 0;}
+    .admin-login{display:flex;gap:8px;align-items:center}
+    .admin-login input{padding:8px;border:1px solid #ccc;border-radius:6px}
+    .admin-login .btn{background:#6c757d;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer}
+    .admin-login .btn:hover{opacity:.9}
+    .admin-status{color:#2c3e50}
   </style>
 
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
+    // ---- CONFIG SUPABASE (identique à index.html)
     const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
     const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "nov-2025";
@@ -29,56 +35,67 @@
       SUPABASE_ANON_KEY,
       { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
     );
-  </script>
-</head>
-<body>
-  <div class="container">
-    <div class="topbar">
-      <h1>🧮 Récapitulatif des disponibilités</h1>
-      <a class="btn" href="./">↩️ Retour au formulaire</a>
-    </div>
 
-    <div id="meta" class="meta-line"></div>
-
-    <table id="tbl">
-      <thead><tr id="theadRow"></tr></thead>
-      <tbody id="tbody"></tbody>
-    </table>
-
-    <div class="footer-btn">
-      <button class="reset-btn" onclick="resetAll()">🧹 Réinitialiser le tableau</button>
-    </div>
-  </div>
-
-  <script>
+    // ---- ÉTAT
     let startDate, endDate, SURVEY_ID;
     let timeSlots = [];
+    let ADMIN_HASH = null;
+    let isAdmin = false;
 
-    function rangeDates(start, end){
-      const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out;
-    }
+    // ---- UTILS (dates locales pour alignement parfait avec index.html)
+    function ymdLocal(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
+    function parseISO(s){ return new Date(`${s}T00:00:00`); } // local midnight
+    function rangeDates(start, end){ const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out; }
     function fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` }
-    function iso(d){ return d.toISOString().slice(0,10) }
     function slotKey(dateIso, s){ return `${dateIso}|${s.start}-${s.end}`; }
+    async function sha256Hex(str){ const enc=new TextEncoder().encode(str); const buf=await crypto.subtle.digest('SHA-256', enc); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
 
+    // ---- CHARGEMENT SONDAGE
     async function getSurvey(){
       const { data, error } = await supabase
         .from("surveys")
-        .select("id, start_date, end_date, time_slots, slug, title")
+        .select("id, start_date, end_date, time_slots, slug, title, admin_password_hash")
         .eq("slug", SURVEY_SLUG)
         .single();
       if (error) throw error;
-      startDate = new Date(data.start_date);
-      endDate   = new Date(data.end_date);
+
+      startDate = parseISO(data.start_date);
+      endDate   = parseISO(data.end_date);
       timeSlots = Array.isArray(data.time_slots) ? data.time_slots : [];
       SURVEY_ID = data.id;
+      ADMIN_HASH = data.admin_password_hash || null;
+
       const slotTxt = (timeSlots && timeSlots.length)
         ? timeSlots.map(s=>`${s.start}–${s.end}`).join(" | ")
         : "Journée entière";
       document.getElementById("meta").textContent =
         `Sondage : ${data.slug} — Période ${data.start_date} → ${data.end_date} — Créneaux : ${slotTxt}`;
+
+      // UI admin: si pas de mot de passe en base, admin “libre”
+      const adminStatus = document.getElementById('adminStatus');
+      if (!ADMIN_HASH) {
+        isAdmin = true;
+        adminStatus.textContent = "Admin libre (aucun mot de passe défini).";
+      }
+      reflectAdminUI();
     }
 
+    // ---- ADMIN
+    async function tryAdminLogin(){
+      if (!ADMIN_HASH) { isAdmin = true; reflectAdminUI(); return; }
+      const pwd = document.getElementById('adminPwd').value || '';
+      const h = await sha256Hex(pwd);
+      isAdmin = (h === ADMIN_HASH);
+      const adminStatus = document.getElementById('adminStatus');
+      adminStatus.textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
+      reflectAdminUI();
+    }
+    function reflectAdminUI(){
+      // Affiche/masque le bouton reset selon isAdmin
+      document.getElementById('resetWrap').style.display = isAdmin ? 'block' : 'none';
+    }
+
+    // ---- RÉCUP DES RÉPONSES
     async function getAllResponses(){
       const { data, error } = await supabase
         .from("submissions_simple")
@@ -88,13 +105,13 @@
       return data || [];
     }
 
+    // ---- TABLE
     function buildTable(responsesList){
       const theadRow = document.getElementById("theadRow");
       const tbody = document.getElementById("tbody");
       theadRow.innerHTML = "";
       tbody.innerHTML = "";
 
-      // En-têtes
       theadRow.innerHTML = "<th>Date / Créneau</th>";
       const participants = responsesList.map(r => r.user_name);
       participants.forEach(name => { theadRow.innerHTML += `<th>${name}</th>`; });
@@ -104,7 +121,7 @@
       const slots = (timeSlots && timeSlots.length) ? timeSlots : [{start:'', end:''}];
 
       dates.forEach(d => {
-        const dIso = iso(d);
+        const dIso = ymdLocal(d); // LOCAL
         slots.forEach(s=>{
           const row = document.createElement("tr");
           const key = slotKey(dIso, s);
@@ -128,8 +145,11 @@
       });
     }
 
+    // ---- RESET (protégé admin)
     async function resetAll(){
+      if (!isAdmin) return alert("Mode administrateur requis.");
       if (!confirm("⚠️ Êtes-vous sûr de vouloir effacer toutes les réponses ? Cette action est irréversible.")) return;
+
       const { error } = await supabase
         .from("submissions_simple")
         .delete()
@@ -139,12 +159,41 @@
       init();
     }
 
+    // ---- INIT
     async function init(){
       await getSurvey();
       const list = await getAllResponses();
       buildTable(list);
     }
-    init();
+    document.addEventListener('DOMContentLoaded', init);
   </script>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <h1>🧮 Récapitulatif des disponibilités</h1>
+      <a class="btn" href="./">↩️ Retour au formulaire</a>
+    </div>
+
+    <div id="meta" class="meta-line"></div>
+
+    <table id="tbl">
+      <thead><tr id="theadRow"></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <div class="footer-btn">
+      <div class="admin-login">
+        <input id="adminPwd" type="password" placeholder="Mot de passe admin">
+        <button class="btn" onclick="tryAdminLogin()">Activer Admin</button>
+        <span id="adminStatus" class="admin-status"></span>
+      </div>
+
+      <!-- Le reset n’est visible que si isAdmin === true -->
+      <div id="resetWrap" style="display:none;">
+        <button class="reset-btn" onclick="resetAll()">🧹 Réinitialiser le tableau</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
