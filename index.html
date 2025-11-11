@@ -34,8 +34,9 @@
     details.admin { margin:12px 0 16px; border:1px dashed #95a5a6; border-radius:8px; padding:10px; background:#fafafa; }
     .admin-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-top:10px; }
     .slots { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
-    .slot-row { display:flex; gap:8px; align-items:center; }
+    .slot-row { display:grid; grid-template-columns: 1fr auto 1fr 1fr auto; gap:8px; align-items:center; }
     .slot-row input[type="time"]{ padding:6px; }
+    .slot-row input[type="text"]{ padding:6px; border:1px solid #ccc; border-radius:6px; }
     .slot-row button { background:#bdc3c7; border:none; border-radius:6px; padding:6px 10px; cursor:pointer; }
     .slot-row button:hover { background:#95a5a6; }
     .session-bar { display:flex; flex-direction:column; gap:10px; padding:14px; border:1px dashed #bbb; border-radius:8px; background:#fff; margin-bottom:12px; }
@@ -45,30 +46,29 @@
     .muted { color:#666; }
     .hidden { display:none; }
     .error { color:#c0392b; font-weight:600; }
+    .slot-note { color:#2c3e50; font-style:italic; font-weight:600; }
   </style>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
-    // ---- CONFIG SUPABASE
     const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false } });
 
-    // ---- SESSION
     const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "";
     let SURVEY_ID = null, START_DATE=null, END_DATE=null, TIME_SLOTS=[], ADMIN_HASH=null, isAdmin=false;
     let userSelections = {};
 
-    // ---- Utils
     function ymdLocal(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
     function parseISO(s){ return new Date(`${s}T00:00:00`); }
     const rangeDates = (startStr, endStr) => { const out=[]; const start=parseISO(startStr), end=parseISO(endStr); for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out; };
     async function sha256Hex(str){ const enc=new TextEncoder().encode(str); const buf=await crypto.subtle.digest('SHA-256', enc); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
     function normalizeTime(t){ if(!t) return t; const [h,m]=String(t).split(':'); return `${String(h||'0').padStart(2,'0')}:${String(m||'0').padStart(2,'0')}`; }
-    function normalizeSlots(list){ return (list||[]).map(s=>({start:normalizeTime(s.start), end:normalizeTime(s.end)})); }
+    function normalizeSlots(list){
+      return (list||[]).map(s=>({start:normalizeTime(s.start), end:normalizeTime(s.end), label:(s.label||"").trim()}));
+    }
     function slotKey(dateIso, slot){ return `${dateIso}|${slot.start}-${slot.end}`; }
     function expectedKeySet(){ const set=new Set(); const slots=(TIME_SLOTS?.length?TIME_SLOTS:[{start:'',end:''}]); const start=parseISO(START_DATE), end=parseISO(END_DATE); for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){ const ymd=ymdLocal(d); slots.forEach(s=>set.add(`${ymd}|${s.start}-${s.end}`)); } return set; }
 
-    // ---- Liste des sessions (dans l'index)
     async function fetchAndRenderSessions(){
       const chooser = document.getElementById('chooserOnly');
       const list = document.getElementById('sessionList');
@@ -106,9 +106,13 @@
       group.forEach(inp => { const span=inp.nextElementSibling; if(span?.classList.contains('availability-option')) { if(inp.value===value) span.classList.add('on'); else span.classList.remove('on'); } });
     }
 
+    function slotHeaderText(s){
+      return (s.start&&s.end)?`${s.start} – ${s.end}${s.label? " — "+s.label : ""}`:'Journée';
+    }
+
     function renderSlotsEditor(){
       const wrap = document.getElementById('slots'); if(!wrap) return; wrap.innerHTML='';
-      const list = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'09:00', end:'12:00'}];
+      const list = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'09:00', end:'12:00', label:''}];
       TIME_SLOTS = normalizeSlots(JSON.parse(JSON.stringify(list)));
       TIME_SLOTS.forEach((s,idx)=>{
         const row = document.createElement('div'); row.className='slot-row';
@@ -116,14 +120,15 @@
           <input type="time" value="${s.start}" data-idx="${idx}" data-kind="start">
           <span>→</span>
           <input type="time" value="${s.end}" data-idx="${idx}" data-kind="end">
+          <input type="text" placeholder="Description (optionnel)" value="${s.label||""}" data-idx="${idx}" data-kind="label">
           <button type="button" data-idx="${idx}" class="rm">Supprimer</button>
         `;
         wrap.appendChild(row);
       });
-      wrap.querySelectorAll('input[type="time"]').forEach(inp=>{
+      wrap.querySelectorAll('input[type="time"], input[type="text"]').forEach(inp=>{
         inp.onchange = (e)=>{
-          const i = +e.target.dataset.idx, k=e.target.dataset.kind, v=normalizeTime(e.target.value);
-          TIME_SLOTS[i][k]=v;
+          const i = +e.target.dataset.idx, k=e.target.dataset.kind, v=(k==="label"? e.target.value : normalizeTime(e.target.value));
+          TIME_SLOTS[i][k]= (k==="label") ? String(v||"").trim() : v;
           createAvailabilityTable();
         };
       });
@@ -131,13 +136,13 @@
         btn.onclick = ()=>{
           const i = +btn.dataset.idx;
           TIME_SLOTS.splice(i,1);
-          if(TIME_SLOTS.length===0) TIME_SLOTS.push({start:'09:00', end:'12:00'});
+          if(TIME_SLOTS.length===0) TIME_SLOTS.push({start:'09:00', end:'12:00', label:''});
           renderSlotsEditor();
           createAvailabilityTable();
         };
       });
     }
-    function addSlot(){ if(!Array.isArray(TIME_SLOTS)) TIME_SLOTS=[]; TIME_SLOTS.push({start:'14:00', end:'17:00'}); TIME_SLOTS=normalizeSlots(TIME_SLOTS); renderSlotsEditor(); createAvailabilityTable(); }
+    function addSlot(){ if(!Array.isArray(TIME_SLOTS)) TIME_SLOTS=[]; TIME_SLOTS.push({start:'14:00', end:'17:00', label:''}); TIME_SLOTS=normalizeSlots(TIME_SLOTS); renderSlotsEditor(); createAvailabilityTable(); }
 
     function createAvailabilityTable(){
       const theadRow = document.getElementById('theadRow');
@@ -147,8 +152,8 @@
       if (!START_DATE || !END_DATE) return;
 
       const headDate = document.createElement('th'); headDate.textContent='Date'; theadRow.appendChild(headDate);
-      const slots = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'',end:''}];
-      slots.forEach(s=>{ const th=document.createElement('th'); th.textContent=(s.start&&s.end)?`${s.start} – ${s.end}`:'Journée'; theadRow.appendChild(th); });
+      const slots = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'',end:'',label:''}];
+      slots.forEach(s=>{ const th=document.createElement('th'); th.innerHTML = slotHeaderText(s); theadRow.appendChild(th); });
 
       rangeDates(START_DATE, END_DATE).forEach(date=>{
         const dateIso = ymdLocal(date);
@@ -157,7 +162,8 @@
         tdDate.textContent = `${date.getDate()}/${date.getMonth()+1}/${date.getFullYear()}`;
         tr.appendChild(tdDate);
 
-        slots.forEach(slot=>{
+        const slots2 = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'',end:'',label:''}];
+        slots2.forEach(slot=>{
           const td = document.createElement('td');
           const key = slotKey(dateIso, slot);
           const types = [
@@ -227,8 +233,6 @@
       if (status) status.textContent = ok ? "Admin activé ✅" : "Mot de passe incorrect.";
       const panel = document.getElementById('adminPanel'); if(panel) panel.style.display = ok ? 'block' : 'none';
     }
-
-    async function setAdminPassword(){ alert("Définition du mot de passe désactivée ici."); }
 
     async function applyAdminSettings(){
       if (!isAdmin) return alert("Mode admin requis.");
@@ -327,7 +331,6 @@
   <div class="container">
     <h1>📅 Mes Disponibilités</h1>
 
-    <!-- Sélection obligatoire d'une session existante -->
     <div id="chooserOnly" class="session-bar hidden">
       <p class="muted">Sélectionnez une <strong>session existante</strong> pour continuer.</p>
       <div id="errorBox" class="error"></div>
@@ -335,7 +338,6 @@
       <div id="sessionList" class="session-list"></div>
     </div>
 
-    <!-- Application (formulaire) -->
     <div id="app" class="hidden">
       <div class="session-bar">
         <span>Session active : <span id="sessionSlug" class="pill"></span></span>
