@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mes Disponibilités</title>
+  <title>Mes Disponibilités</</title>
   <style>
     body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; }
     .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -21,25 +21,22 @@
     .maybe { background-color: #f39c12; color: white; }
     .unavailable { background-color: #e74c3c; color: white; }
     input[type="radio"] { display: none; }
-    input[type="radio"]:checked + .availability-option { transform: scale(1.2); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
+    input[type="radio"]:checked + .availability-option,
+    .availability-option.on { transform: scale(1.2); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
     table { border-collapse: collapse; width: 100%; min-width: 800px; }
     th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
     th { background-color: #34495e; color: white; }
     .name-input { padding: 10px; font-size: 16px; border: 2px solid #ddd; border-radius: 5px; width: 300px; margin: 10px 0; }
-
-    /* Admin */
     .admin-login { display:flex; gap:8px; align-items:center; margin: 8px 0 14px; }
     .admin-login input { padding:8px; border:1px solid #ccc; border-radius:6px; }
     .admin-login .btn { background:#6c757d; color:#fff; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; }
     .admin-login .btn:hover{ opacity:.9; }
-
     details.admin { margin: 12px 0 16px; border: 1px dashed #95a5a6; border-radius: 8px; padding: 10px; background:#fafafa; }
     .admin-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-top:10px; }
     .admin-grid label { font-size:12px; color:#2c3e50; }
     .admin-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
     .btn-secondary { background:#6c757d; color:#fff; padding:8px 12px; border:none; border-radius:6px; cursor:pointer; }
     .btn-secondary:hover { opacity:.9; }
-
     .slots { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
     .slot-row { display:flex; gap:8px; align-items:center; }
     .slot-row input[type="time"]{ padding:6px; }
@@ -59,43 +56,35 @@
       { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
     );
 
-    // État global
     let SURVEY_ID = null;
     let START_DATE = null;
     let END_DATE = null;
-    let TIME_SLOTS = [];          // [{start:"09:00", end:"12:00"}, ...]
-    let ADMIN_HASH = null;        // hash du mot de passe en base
+    let TIME_SLOTS = [];
+    let ADMIN_HASH = null;
     let isAdmin = false;
+    let userSelections = {};
 
-    let userSelections = {}; // { "YYYY-MM-DD|HH:MM-HH:MM": "available"|"maybe"|"unavailable" }
-
-    // Utils
     const iso = d => d.toISOString().split('T')[0];
-    const parseISO = s => new Date(s + 'T00:00:00');
-    const rangeDates = (startStr, endStr) => {
-      const out=[]; const start=parseISO(startStr), end=parseISO(endStr);
-      for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d));
-      return out;
-    };
-    async function sha256Hex(str){
-      const enc = new TextEncoder().encode(str);
-      const buf = await crypto.subtle.digest('SHA-256', enc);
-      return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
-    }
+    function ymdLocal(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
+    function parseISO(s){ return new Date(`${s}T00:00:00`); }
+    const rangeDates = (startStr, endStr) => { const out=[]; const start=parseISO(startStr), end=parseISO(endStr); for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out; };
+    async function sha256Hex(str){ const enc=new TextEncoder().encode(str); const buf=await crypto.subtle.digest('SHA-256', enc); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+    function normalizeTime(t){ if(!t) return t; const [h,m]=String(t).split(':'); return `${String(h||'0').padStart(2,'0')}:${String(m||'0').padStart(2,'0')}`; }
+    function normalizeSlots(list){ return (list||[]).map(s=>({start:normalizeTime(s.start), end:normalizeTime(s.end)})); }
+    function slotKey(dateIso, slot){ return `${dateIso}|${slot.start}-${slot.end}`; }
+    function expectedKeySet(){ const set=new Set(); const slots=(TIME_SLOTS?.length?TIME_SLOTS:[{start:'',end:''}]); const start=parseISO(START_DATE), end=parseISO(END_DATE); for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){ const ymd=ymdLocal(d); slots.forEach(s=>set.add(`${ymd}|${s.start}-${s.end}`)); } return set; }
   </script>
 </head>
 <body>
   <div class="container">
     <h1>📅 Mes Disponibilités</h1>
 
-    <!-- Login Admin -->
     <div class="admin-login">
       <input id="adminPwd" type="password" placeholder="Mot de passe admin">
       <button class="btn" id="adminBtn">Activer Admin</button>
       <span id="adminStatus" style="color:#2c3e50;"></span>
     </div>
 
-    <!-- Panneau Admin (caché tant qu’on n’est pas connecté) -->
     <details class="admin" id="adminPanel" style="display:none;">
       <summary>⚙️ Mode administrateur — Période, créneaux, mot de passe</summary>
 
@@ -167,25 +156,10 @@
   </div>
 
   <script>
-
-function expectedKeySet(){
-  const set = new Set();
-  const slots = (TIME_SLOTS?.length ? TIME_SLOTS : [{start:'', end:''}]);
-  const start = new Date(START_DATE), end = new Date(END_DATE);
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) {
-    const ymd = d.toISOString().slice(0,10);
-    slots.forEach(s => set.add(`${ymd}|${s.start}-${s.end}`));
-  }
-  return set;
-}
-
-
-
-    // ---- Rendu Admin (créneaux)
     function renderSlotsEditor(){
       const wrap = document.getElementById('slots'); wrap.innerHTML='';
       const list = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'09:00', end:'12:00'}];
-      TIME_SLOTS = JSON.parse(JSON.stringify(list));
+      TIME_SLOTS = normalizeSlots(JSON.parse(JSON.stringify(list)));
       TIME_SLOTS.forEach((s,idx)=>{
         const row = document.createElement('div'); row.className='slot-row';
         row.innerHTML = `
@@ -198,7 +172,7 @@ function expectedKeySet(){
       });
       wrap.querySelectorAll('input[type="time"]').forEach(inp=>{
         inp.onchange = (e)=>{
-          const i = +e.target.dataset.idx, k=e.target.dataset.kind, v=e.target.value;
+          const i = +e.target.dataset.idx, k=e.target.dataset.kind, v=normalizeTime(e.target.value);
           TIME_SLOTS[i][k]=v;
           createAvailabilityTable();
         };
@@ -216,12 +190,10 @@ function expectedKeySet(){
     function addSlot(){
       if(!Array.isArray(TIME_SLOTS)) TIME_SLOTS=[];
       TIME_SLOTS.push({start:'14:00', end:'17:00'});
+      TIME_SLOTS = normalizeSlots(TIME_SLOTS);
       renderSlotsEditor();
       createAvailabilityTable();
     }
-
-    // ---- Tableau
-    function slotKey(dateIso, slot){ return `${dateIso}|${slot.start}-${slot.end}`; }
 
     function createAvailabilityTable(){
       const theadRow = document.getElementById('theadRow');
@@ -239,7 +211,7 @@ function expectedKeySet(){
       });
 
       rangeDates(START_DATE, END_DATE).forEach(date=>{
-        const dateIso = iso(date);
+        const dateIso = ymdLocal(date);
         const tr = document.createElement('tr');
 
         const tdDate = document.createElement('td');
@@ -257,36 +229,50 @@ function expectedKeySet(){
           types.forEach(t=>{
             const label=document.createElement('label');
             const input=document.createElement('input');
-            input.type='radio'; input.name=`availability-${key}`; input.value=t.v;
-            input.onchange=()=>{ userSelections[key]=t.v; };
-            if(userSelections[key]===t.v) input.checked=true;
+            input.type='radio';
+            input.name=`availability-${key}`;
+            input.value=t.v;
+            input.dataset.key = key;
+            input.onchange=()=>{ userSelections[key]=t.v; markGroup(key, t.v); };
+            const initVal = userSelections[key] || 'unavailable';
+            if (initVal === t.v) input.checked = true;
             const span=document.createElement('span'); span.classList.add('availability-option',t.c); span.textContent=t.s;
+            if (initVal === t.v) span.classList.add('on');
             label.appendChild(input); label.appendChild(span);
             td.appendChild(label);
           });
+          if (!userSelections[key]) markGroup(key, 'unavailable');
           tr.appendChild(td);
         });
 
         tbody.appendChild(tr);
       });
 
-      // sync champs admin
       const aS = document.getElementById('admStart'); if(aS && START_DATE) aS.value=START_DATE;
       const aE = document.getElementById('admEnd'); if(aE && END_DATE) aE.value=END_DATE;
     }
 
-    // ---- Supabase
+    function markGroup(key, value){
+      const group = document.getElementsByName(`availability-${key}`);
+      group.forEach(inp => {
+        const span = inp.nextElementSibling;
+        if (span && span.classList.contains('availability-option')) {
+          if (inp.value === value) span.classList.add('on'); else span.classList.remove('on');
+        }
+      });
+    }
+
     function applySurveyState(s) {
       SURVEY_ID = s.id;
       START_DATE = s.start_date;
       END_DATE = s.end_date;
-      TIME_SLOTS = Array.isArray(s.time_slots) ? s.time_slots : [];
+      TIME_SLOTS = normalizeSlots(Array.isArray(s.time_slots) ? s.time_slots : []);
       ADMIN_HASH = s.admin_password_hash || null;
       renderSlotsEditor();
     }
 
     async function ensureSurvey(){
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('surveys')
         .select('id, slug, start_date, end_date, time_slots, admin_password_hash')
         .eq('slug', SURVEY_SLUG)
@@ -319,7 +305,6 @@ function expectedKeySet(){
       createAvailabilityTable();
     }
 
-    // ---- Admin
     async function tryAdminLogin(){
       const pwd = document.getElementById('adminPwd').value || '';
       const status = document.getElementById('adminStatus');
@@ -361,7 +346,7 @@ function expectedKeySet(){
       const end   = document.getElementById('admEnd').value;
       if (!start || !end) return alert("Veuillez choisir une date de début et de fin.");
       if (new Date(start) > new Date(end)) return alert("La date de début doit précéder la date de fin.");
-      TIME_SLOTS = (TIME_SLOTS||[]).filter(s=>s && s.start && s.end);
+      TIME_SLOTS = normalizeSlots((TIME_SLOTS||[]).filter(s=>s && s.start && s.end));
 
       const { data, error } = await supabase
         .from('surveys')
@@ -378,65 +363,50 @@ function expectedKeySet(){
       alert("✅ Période et créneaux mis à jour.");
     }
 
-    // ---- Participants
     function buildResponsesJSON(){
       const out={};
+      const allowed = expectedKeySet();
       for(const [k,v] of Object.entries(userSelections||{})){
-        if (v && v!=='unavailable') out[k]=v;
+        if (allowed.has(k) && v && v!=='unavailable') out[k]=v;
       }
       return out;
     }
 
     function fillAll(status){
-      if (!START_DATE || !END_DATE) return;
-      const slots = (Array.isArray(TIME_SLOTS) && TIME_SLOTS.length) ? TIME_SLOTS : [{start:'',end:''}];
-      rangeDates(START_DATE, END_DATE).forEach(date=>{
-        const d = iso(date);
-        slots.forEach(s=>{
-          const key = slotKey(d,s);
-          userSelections[key]=status;
-        });
-      });
+      const allowed = expectedKeySet();
+      Object.keys(userSelections || {}).forEach(k => { if (!allowed.has(k)) delete userSelections[k]; });
+      for (const k of allowed) userSelections[k] = status;
       createAvailabilityTable();
     }
 
-async function preloadByName(){
-  const name = document.getElementById('userName').value.trim();
-  if (!name || !SURVEY_ID) return;
-  const { data, error } = await supabase
-    .from('submissions_simple')
-    .select('responses')
-    .eq('survey_id', SURVEY_ID)
-    .eq('user_name', name)
-    .maybeSingle();
-  if (!error && data?.responses) {
-    const allowed = expectedKeySet();
-    userSelections = Object.fromEntries(
-      Object.entries(data.responses).filter(([k]) => allowed.has(k))
-    );
-    createAvailabilityTable();
-  }
-}
+    async function preloadByName(){
+      const name = document.getElementById('userName').value.trim();
+      if (!name || !SURVEY_ID) return;
+      const { data, error } = await supabase
+        .from('submissions_simple')
+        .select('responses')
+        .eq('survey_id', SURVEY_ID)
+        .eq('user_name', name)
+        .maybeSingle();
+      if (!error && data?.responses) {
+        const allowed = expectedKeySet();
+        userSelections = Object.fromEntries(Object.entries(data.responses).filter(([k]) => allowed.has(k)));
+        createAvailabilityTable();
+      } else {
+        userSelections = {};
+        createAvailabilityTable();
+      }
+    }
 
     async function saveToSupabase(){
       const name = document.getElementById('userName').value.trim();
       if (!name) return alert("Entrez votre nom.");
       if (!SURVEY_ID) await ensureSurvey();
-
       const responses = buildResponsesJSON();
       if (!Object.keys(responses).length) return alert("Sélectionnez au moins une disponibilité.");
-
       const { error } = await supabase
         .from('submissions_simple')
-        .upsert(
-          {
-            survey_id: SURVEY_ID,
-            user_name: name,
-            responses,
-            updated_at: new Date().toISOString()
-          },
-          { onConflict: 'survey_id,user_name' }
-        );
+        .upsert({ survey_id: SURVEY_ID, user_name: name, responses, updated_at: new Date().toISOString() }, { onConflict: 'survey_id,user_name' });
       if (error) return alert(error.message);
       alert("✅ Réponses enregistrées !");
     }
@@ -446,7 +416,6 @@ async function preloadByName(){
       if (!name) return alert("Entrez votre nom.");
       if (!SURVEY_ID) await ensureSurvey();
       if (!confirm(`Effacer les réponses de "${name}" ?`)) return;
-
       const { error } = await supabase
         .from('submissions_simple')
         .delete()
@@ -458,7 +427,6 @@ async function preloadByName(){
       alert("🗑️ Réponses effacées.");
     }
 
-    // ---- Init
     document.addEventListener('DOMContentLoaded', async ()=>{
       await ensureSurvey();
       createAvailabilityTable();
