@@ -22,147 +22,133 @@
     .admin-login .btn{background:#6c757d;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer}
     .admin-login .btn:hover{opacity:.9}
     .admin-status{color:#2c3e50}
+    .session-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;border:1px dashed #bbb;border-radius:8px;background:#fff;margin-bottom:12px}
+    .text-input{padding:10px;font-size:16px;border:2px solid #ddd;border-radius:6px}
+    .pill{background:#eef;color:#223;padding:6px 10px;border-radius:999px;font-weight:600}
+    .muted{color:#666}
+    .btn-ghost{background:transparent;border:1px solid #ccc;color:#333;padding:8px 12px;border-radius:6px;cursor:pointer}
+    .btn-ghost:hover{background:#f2f2f2}
   </style>
-
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
-    // ---- CONFIG SUPABASE (identique à index.html)
+    // ---- CONFIG
     const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
-    const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "nov-2025";
-    const supabase = window.supabase.createClient(
-      SUPABASE_URL,
-      SUPABASE_ANON_KEY,
-      { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
-    );
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false} });
 
-    // ---- ÉTAT
-    let startDate, endDate, SURVEY_ID;
-    let timeSlots = [];
-    let ADMIN_HASH = null;
-    let isAdmin = false;
+    const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "";
+    let startDate, endDate, SURVEY_ID, timeSlots=[], ADMIN_HASH=null, isAdmin=false;
+    let adminPanelRevealed = false; // ← le bloc login n’apparaît qu’après clic « Mode admin »
 
-    // ---- UTILS (dates locales pour alignement parfait avec index.html)
+    // ---- Utils
     function ymdLocal(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
-    function parseISO(s){ return new Date(`${s}T00:00:00`); } // local midnight
+    function parseISO(s){ return new Date(`${s}T00:00:00`); }
     function rangeDates(start, end){ const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out; }
     function fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` }
     function slotKey(dateIso, s){ return `${dateIso}|${s.start}-${s.end}`; }
     async function sha256Hex(str){ const enc=new TextEncoder().encode(str); const buf=await crypto.subtle.digest('SHA-256', enc); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
 
-    // ---- CHARGEMENT SONDAGE
-    async function getSurvey(){
-      const { data, error } = await supabase
-        .from("surveys")
-        .select("id, start_date, end_date, time_slots, slug, title, admin_password_hash")
-        .eq("slug", SURVEY_SLUG)
-        .single();
-      if (error) throw error;
+    function goToSurvey(slug){ slug=(slug||"").trim(); if(!slug) return alert("Code de session requis."); location.href=`${location.pathname}?survey=${encodeURIComponent(slug)}`; }
 
+    async function getSurvey(){
+      const { data, error } = await supabase.from("surveys")
+        .select("id, start_date, end_date, time_slots, slug, title, admin_password_hash")
+        .eq("slug", SURVEY_SLUG).single();
+      if (error) throw error;
       startDate = parseISO(data.start_date);
       endDate   = parseISO(data.end_date);
       timeSlots = Array.isArray(data.time_slots) ? data.time_slots : [];
       SURVEY_ID = data.id;
       ADMIN_HASH = data.admin_password_hash || null;
 
-      const slotTxt = (timeSlots && timeSlots.length)
-        ? timeSlots.map(s=>`${s.start}–${s.end}`).join(" | ")
-        : "Journée entière";
-      document.getElementById("meta").textContent =
-        `Sondage : ${data.slug} — Période ${data.start_date} → ${data.end_date} — Créneaux : ${slotTxt}`;
+      const slotTxt = (timeSlots && timeSlots.length) ? timeSlots.map(s=>`${s.start}–${s.end}`).join(" | ") : "Journée entière";
+      document.getElementById("meta").textContent = `Sondage : ${data.slug} — Période ${data.start_date} → ${data.end_date} — Créneaux : ${slotTxt}`;
+      document.getElementById("sessionShow").textContent = SURVEY_SLUG;
+      document.getElementById("backLink").href = `./?survey=${encodeURIComponent(SURVEY_SLUG)}`;
 
-      // UI admin: si pas de mot de passe en base, admin “libre”
-      const adminStatus = document.getElementById('adminStatus');
-      if (!ADMIN_HASH) {
-        isAdmin = true;
-        adminStatus.textContent = "Admin libre (aucun mot de passe défini).";
-      }
+      // Ne pas activer automatiquement l’admin si pas de mot de passe :
+      // on exige un clic sur « Activer Admin » même en admin libre.
+      document.getElementById('adminStatus').textContent = ADMIN_HASH
+        ? "Entrez le mot de passe admin."
+        : "Aucun mot de passe défini. Cliquez « Activer Admin ».";
       reflectAdminUI();
     }
 
-    // ---- ADMIN
+    // Révèle le panneau login sur clic du bouton « Mode admin »
+    function revealAdminPanel(){
+      adminPanelRevealed = true;
+      document.getElementById('openAdminBtn').style.display = 'none';
+      document.getElementById('adminLoginWrap').style.display = 'flex';
+      document.getElementById('adminPwd').focus();
+      reflectAdminUI();
+    }
+
     async function tryAdminLogin(){
-      if (!ADMIN_HASH) { isAdmin = true; reflectAdminUI(); return; }
-      const pwd = document.getElementById('adminPwd').value || '';
-      const h = await sha256Hex(pwd);
-      isAdmin = (h === ADMIN_HASH);
-      const adminStatus = document.getElementById('adminStatus');
-      adminStatus.textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
+      if (!adminPanelRevealed) return; // sécurité
+      if (!ADMIN_HASH) {
+        // admin libre : on demande tout de même d’appuyer sur « Activer Admin »
+        isAdmin = true;
+      } else {
+        const pwd=document.getElementById('adminPwd').value||'';
+        const h=await sha256Hex(pwd);
+        isAdmin=(h===ADMIN_HASH);
+      }
+      document.getElementById('adminStatus').textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
       reflectAdminUI();
     }
+
     function reflectAdminUI(){
-      // Affiche/masque le bouton reset selon isAdmin
-      document.getElementById('resetWrap').style.display = isAdmin ? 'block' : 'none';
+      // Le bouton Reset n’apparaît QUE si (1) on a cliqué « Mode admin » et (2) authentifié avec succès
+      const showReset = adminPanelRevealed && isAdmin;
+      document.getElementById('resetWrap').style.display = showReset ? 'block' : 'none';
+
+      // Le bloc login n’apparait que si on a cliqué « Mode admin »
+      document.getElementById('adminLoginWrap').style.display = adminPanelRevealed ? 'flex' : 'none';
     }
 
-    // ---- RÉCUP DES RÉPONSES
     async function getAllResponses(){
-      const { data, error } = await supabase
-        .from("submissions_simple")
-        .select("user_name, responses")
-        .eq("survey_id", SURVEY_ID);
+      const { data, error } = await supabase.from("submissions_simple").select("user_name, responses").eq("survey_id", SURVEY_ID);
       if (error) throw error;
       return data || [];
     }
 
-    // ---- TABLE
     function buildTable(responsesList){
-      const theadRow = document.getElementById("theadRow");
-      const tbody = document.getElementById("tbody");
-      theadRow.innerHTML = "";
-      tbody.innerHTML = "";
-
-      theadRow.innerHTML = "<th>Date / Créneau</th>";
-      const participants = responsesList.map(r => r.user_name);
-      participants.forEach(name => { theadRow.innerHTML += `<th>${name}</th>`; });
+      const theadRow=document.getElementById("theadRow"); const tbody=document.getElementById("tbody");
+      theadRow.innerHTML=""; tbody.innerHTML="";
+      theadRow.innerHTML="<th>Date / Créneau</th>";
+      const participants = responsesList.map(r=>r.user_name);
+      participants.forEach(name=>{ theadRow.innerHTML += `<th>${name}</th>`; });
       theadRow.innerHTML += "<th>Créneau parfait</th>";
 
-      const dates = rangeDates(startDate, endDate);
-      const slots = (timeSlots && timeSlots.length) ? timeSlots : [{start:'', end:''}];
+      const dates=rangeDates(startDate,endDate);
+      const slots=(timeSlots&&timeSlots.length)?timeSlots:[{start:'',end:''}];
 
-      dates.forEach(d => {
-        const dIso = ymdLocal(d); // LOCAL
+      dates.forEach(d=>{
+        const dIso=ymdLocal(d);
         slots.forEach(s=>{
-          const row = document.createElement("tr");
-          const key = slotKey(dIso, s);
-          let cells = `<td>${fmt(d)}${s.start?` — ${s.start}–${s.end}`:''}</td>`;
-          let allAvailable = true;
-
-          responsesList.forEach(r => {
-            const val = r.responses?.[key];
-            let symbol = "";
-            if (val === "available") symbol = "✅";
-            else if (val === "maybe") { symbol = "❓"; allAvailable = false; }
-            else { symbol = "❌"; allAvailable = false; }
-            cells += `<td>${symbol}</td>`;
-          });
-
-          const perfect = (responsesList.length > 0 && allAvailable);
-          cells += `<td>${perfect ? "🌟" : ""}</td>`;
-          row.innerHTML = cells;
-          tbody.appendChild(row);
+          const row=document.createElement("tr"); const key=slotKey(dIso,s);
+          let cells=`<td>${fmt(d)}${s.start?` — ${s.start}–${s.end}`:''}</td>`; let allAvailable=true;
+          responsesList.forEach(r=>{ const val=r.responses?.[key]; let symbol=""; if(val==="available") symbol="✅"; else if(val==="maybe"){symbol="❓"; allAvailable=false;} else {symbol="❌"; allAvailable=false;} cells+=`<td>${symbol}</td>`; });
+          cells+=`<td>${(responsesList.length>0 && allAvailable)?"🌟":""}</td>`;
+          row.innerHTML=cells; tbody.appendChild(row);
         });
       });
     }
 
-    // ---- RESET (protégé admin)
     async function resetAll(){
       if (!isAdmin) return alert("Mode administrateur requis.");
-      if (!confirm("⚠️ Êtes-vous sûr de vouloir effacer toutes les réponses ? Cette action est irréversible.")) return;
-
-      const { error } = await supabase
-        .from("submissions_simple")
-        .delete()
-        .eq("survey_id", SURVEY_ID);
-      if (error) return alert("Erreur : " + error.message);
+      if (!confirm("⚠️ Effacer toutes les réponses de cette session ?")) return;
+      const { error } = await supabase.from("submissions_simple").delete().eq("survey_id", SURVEY_ID);
+      if (error) return alert("Erreur : "+error.message);
       alert("🧹 Toutes les réponses ont été effacées.");
       init();
     }
 
-    // ---- INIT
     async function init(){
+      const bar = document.getElementById('sessionBar');
+      if (!SURVEY_SLUG){ bar.style.display='flex'; return; }
       await getSurvey();
-      const list = await getAllResponses();
+      const list=await getAllResponses();
       buildTable(list);
     }
     document.addEventListener('DOMContentLoaded', init);
@@ -172,9 +158,18 @@
   <div class="container">
     <div class="topbar">
       <h1>🧮 Récapitulatif des disponibilités</h1>
-      <a class="btn" href="./">↩️ Retour au formulaire</a>
+      <a id="backLink" class="btn" href="./">↩️ Retour au formulaire</a>
     </div>
 
+    <!-- Choix de session si pas de ?survey=... -->
+    <div id="sessionBar" class="session-bar" style="display:none;">
+      <span>Entrez un <strong>code de session</strong> pour ouvrir un récap (ex. <span class="pill">equipe-a</span>)</span>
+      <input id="sessionInput" class="text-input" placeholder="ex : equipe-a" />
+      <button class="btn" onclick="goToSurvey(document.getElementById('sessionInput').value)">Ouvrir</button>
+      <span class="muted">Chaque session est isolée des autres.</span>
+    </div>
+
+    <div class="meta-line">Session active : <span id="sessionShow" class="pill"></span></div>
     <div id="meta" class="meta-line"></div>
 
     <table id="tbl">
@@ -183,13 +178,17 @@
     </table>
 
     <div class="footer-btn">
-      <div class="admin-login">
-        <input id="adminPwd" type="password" placeholder="Mot de passe admin">
+      <!-- 1) Bouton d’entrée en mode admin -->
+      <button id="openAdminBtn" class="btn-ghost" onclick="revealAdminPanel()">🔐 Mode admin</button>
+
+      <!-- 2) Bloc login admin (révélé uniquement après clic ci-dessus) -->
+      <div id="adminLoginWrap" class="admin-login" style="display:none;">
+        <input id="adminPwd" type="password" placeholder="Mot de passe admin" />
         <button class="btn" onclick="tryAdminLogin()">Activer Admin</button>
         <span id="adminStatus" class="admin-status"></span>
       </div>
 
-      <!-- Le reset n’est visible que si isAdmin === true -->
+      <!-- 3) Bouton reset (uniquement après activation admin réussie) -->
       <div id="resetWrap" style="display:none;">
         <button class="reset-btn" onclick="resetAll()">🧹 Réinitialiser le tableau</button>
       </div>
