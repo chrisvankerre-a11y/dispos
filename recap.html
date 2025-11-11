@@ -28,27 +28,25 @@
     .muted{color:#666}
     .btn-ghost{background:transparent;border:1px solid #ccc;color:#333;padding:8px 12px;border-radius:6px;cursor:pointer}
     .btn-ghost:hover{background:#f2f2f2}
+    .slot-note{color:#ffd966; font-style:italic; font-weight:600;}
   </style>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
-    // ---- CONFIG
     const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false} });
 
     const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "";
     let startDate, endDate, SURVEY_ID, timeSlots=[], ADMIN_HASH=null, isAdmin=false;
-    let adminPanelRevealed = false; // ← le bloc login n’apparaît qu’après clic « Mode admin »
+    let adminPanelRevealed = false;
 
-    // ---- Utils
     function ymdLocal(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
     function parseISO(s){ return new Date(`${s}T00:00:00`); }
     function rangeDates(start, end){ const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out; }
     function fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` }
     function slotKey(dateIso, s){ return `${dateIso}|${s.start}-${s.end}`; }
     async function sha256Hex(str){ const enc=new TextEncoder().encode(str); const buf=await crypto.subtle.digest('SHA-256', enc); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
-
-    function goToSurvey(slug){ slug=(slug||"").trim(); if(!slug) return alert("Code de session requis."); location.href=`${location.pathname}?survey=${encodeURIComponent(slug)}`; }
+    function headerText(s){ return (s.start&&s.end)?`${s.start}–${s.end}${s.label? " — "+s.label : ""}`:'Journée'; }
 
     async function getSurvey(){
       const { data, error } = await supabase.from("surveys")
@@ -57,24 +55,21 @@
       if (error) throw error;
       startDate = parseISO(data.start_date);
       endDate   = parseISO(data.end_date);
-      timeSlots = Array.isArray(data.time_slots) ? data.time_slots : [];
+      timeSlots = Array.isArray(data.time_slots) ? data.time_slots.map(s=>({start:s.start, end:s.end, label:(s.label||"").trim()})) : [];
       SURVEY_ID = data.id;
       ADMIN_HASH = data.admin_password_hash || null;
 
-      const slotTxt = (timeSlots && timeSlots.length) ? timeSlots.map(s=>`${s.start}–${s.end}`).join(" | ") : "Journée entière";
+      const slotTxt = (timeSlots && timeSlots.length) ? timeSlots.map(s=>`${s.start}–${s.end}${s.label? " — "+s.label:""}`).join(" | ") : "Journée entière";
       document.getElementById("meta").textContent = `Sondage : ${data.slug} — Période ${data.start_date} → ${data.end_date} — Créneaux : ${slotTxt}`;
       document.getElementById("sessionShow").textContent = SURVEY_SLUG;
       document.getElementById("backLink").href = `./?survey=${encodeURIComponent(SURVEY_SLUG)}`;
 
-      // Ne pas activer automatiquement l’admin si pas de mot de passe :
-      // on exige un clic sur « Activer Admin » même en admin libre.
       document.getElementById('adminStatus').textContent = ADMIN_HASH
         ? "Entrez le mot de passe admin."
         : "Aucun mot de passe défini. Cliquez « Activer Admin ».";
       reflectAdminUI();
     }
 
-    // Révèle le panneau login sur clic du bouton « Mode admin »
     function revealAdminPanel(){
       adminPanelRevealed = true;
       document.getElementById('openAdminBtn').style.display = 'none';
@@ -83,27 +78,23 @@
       reflectAdminUI();
     }
 
-async function tryAdminLogin(){
-  if (!ADMIN_HASH) {
-    // Aucun mot de passe pour cette session : impossible d’activer l’admin ici.
-    isAdmin = false;
-    document.getElementById('adminStatus').textContent = "Aucun mot de passe défini. Définissez-le depuis la page du formulaire.";
-    reflectAdminUI();
-    return;
-  }
-  const pwd = document.getElementById('adminPwd').value || '';
-  const h = await sha256Hex(pwd);
-  isAdmin = (h === ADMIN_HASH);
-  document.getElementById('adminStatus').textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
-  reflectAdminUI();
-}
+    async function tryAdminLogin(){
+      if (!ADMIN_HASH) {
+        isAdmin = false;
+        document.getElementById('adminStatus').textContent = "Aucun mot de passe défini. Définissez-le depuis le formulaire.";
+        reflectAdminUI();
+        return;
+      }
+      const pwd=document.getElementById('adminPwd').value||'';
+      const h=await sha256Hex(pwd);
+      isAdmin=(h===ADMIN_HASH);
+      document.getElementById('adminStatus').textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
+      reflectAdminUI();
+    }
 
     function reflectAdminUI(){
-      // Le bouton Reset n’apparaît QUE si (1) on a cliqué « Mode admin » et (2) authentifié avec succès
       const showReset = adminPanelRevealed && isAdmin;
       document.getElementById('resetWrap').style.display = showReset ? 'block' : 'none';
-
-      // Le bloc login n’apparait que si on a cliqué « Mode admin »
       document.getElementById('adminLoginWrap').style.display = adminPanelRevealed ? 'flex' : 'none';
     }
 
@@ -122,13 +113,14 @@ async function tryAdminLogin(){
       theadRow.innerHTML += "<th>Créneau parfait</th>";
 
       const dates=rangeDates(startDate,endDate);
-      const slots=(timeSlots&&timeSlots.length)?timeSlots:[{start:'',end:''}];
+      const slots=(timeSlots&&timeSlots.length)?timeSlots:[{start:'',end:'',label:''}];
 
       dates.forEach(d=>{
         const dIso=ymdLocal(d);
         slots.forEach(s=>{
           const row=document.createElement("tr"); const key=slotKey(dIso,s);
-          let cells=`<td>${fmt(d)}${s.start?` — ${s.start}–${s.end}`:''}</td>`; let allAvailable=true;
+          let cells=`<td>${fmt(d)}${s.start?` — ${s.start}–${s.end}${s.label? " — <span class='slot-note'>"+s.label+"</span>":""}`:''}</td>`;
+          let allAvailable=true;
           responsesList.forEach(r=>{ const val=r.responses?.[key]; let symbol=""; if(val==="available") symbol="✅"; else if(val==="maybe"){symbol="❓"; allAvailable=false;} else {symbol="❌"; allAvailable=false;} cells+=`<td>${symbol}</td>`; });
           cells+=`<td>${(responsesList.length>0 && allAvailable)?"🌟":""}</td>`;
           row.innerHTML=cells; tbody.appendChild(row);
@@ -146,8 +138,7 @@ async function tryAdminLogin(){
     }
 
     async function init(){
-      const bar = document.getElementById('sessionBar');
-      if (!SURVEY_SLUG){ bar.style.display='flex'; return; }
+      if (!SURVEY_SLUG){ return; }
       await getSurvey();
       const list=await getAllResponses();
       buildTable(list);
@@ -162,14 +153,6 @@ async function tryAdminLogin(){
       <a id="backLink" class="btn" href="./">↩️ Retour au formulaire</a>
     </div>
 
-    <!-- Choix de session si pas de ?survey=... -->
-    <div id="sessionBar" class="session-bar" style="display:none;">
-      <span>Entrez un <strong>code de session</strong> pour ouvrir un récap (ex. <span class="pill">equipe-a</span>)</span>
-      <input id="sessionInput" class="text-input" placeholder="ex : equipe-a" />
-      <button class="btn" onclick="goToSurvey(document.getElementById('sessionInput').value)">Ouvrir</button>
-      <span class="muted">Chaque session est isolée des autres.</span>
-    </div>
-
     <div class="meta-line">Session active : <span id="sessionShow" class="pill"></span></div>
     <div id="meta" class="meta-line"></div>
 
@@ -179,17 +162,12 @@ async function tryAdminLogin(){
     </table>
 
     <div class="footer-btn">
-      <!-- 1) Bouton d’entrée en mode admin -->
       <button id="openAdminBtn" class="btn-ghost" onclick="revealAdminPanel()">🔐 Mode admin</button>
-
-      <!-- 2) Bloc login admin (révélé uniquement après clic ci-dessus) -->
       <div id="adminLoginWrap" class="admin-login" style="display:none;">
         <input id="adminPwd" type="password" placeholder="Mot de passe admin" />
         <button class="btn" onclick="tryAdminLogin()">Activer Admin</button>
         <span id="adminStatus" class="admin-status"></span>
       </div>
-
-      <!-- 3) Bouton reset (uniquement après activation admin réussie) -->
       <div id="resetWrap" style="display:none;">
         <button class="reset-btn" onclick="resetAll()">🧹 Réinitialiser le tableau</button>
       </div>
