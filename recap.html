@@ -83,19 +83,20 @@
       reflectAdminUI();
     }
 
-    async function tryAdminLogin(){
-      if (!adminPanelRevealed) return; // sécurité
-      if (!ADMIN_HASH) {
-        // admin libre : on demande tout de même d’appuyer sur « Activer Admin »
-        isAdmin = true;
-      } else {
-        const pwd=document.getElementById('adminPwd').value||'';
-        const h=await sha256Hex(pwd);
-        isAdmin=(h===ADMIN_HASH);
-      }
-      document.getElementById('adminStatus').textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
-      reflectAdminUI();
-    }
+async function tryAdminLogin(){
+  if (!ADMIN_HASH) {
+    // Aucun mot de passe pour cette session : impossible d’activer l’admin ici.
+    isAdmin = false;
+    document.getElementById('adminStatus').textContent = "Aucun mot de passe défini. Définissez-le depuis la page du formulaire.";
+    reflectAdminUI();
+    return;
+  }
+  const pwd = document.getElementById('adminPwd').value || '';
+  const h = await sha256Hex(pwd);
+  isAdmin = (h === ADMIN_HASH);
+  document.getElementById('adminStatus').textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
+  reflectAdminUI();
+}
 
     function reflectAdminUI(){
       // Le bouton Reset n’apparaît QUE si (1) on a cliqué « Mode admin » et (2) authentifié avec succès
