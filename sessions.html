@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gestion des sessions (sondages)</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;max-width:1200px;margin:0 auto;padding:20px;background:#f5f5f5}
+    .container{background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.1)}
+    h1{margin:0 0 8px;color:#2c3e50}
+    .muted{color:#666}
+    table{border-collapse:collapse;width:100%;margin-top:12px}
+    th,td{border:1px solid #e3e3e3;padding:10px;text-align:left;vertical-align:top}
+    th{background:#f0f3f7}
+    .btn{background:#6c757d;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer}
+    .btn:hover{opacity:.9}
+    .btn-danger{background:#e74c3c}
+    .pill{background:#eef;color:#223;padding:4px 8px;border-radius:999px;font-weight:600}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+    input[type="text"],input[type="password"]{padding:8px;border:1px solid #ccc;border-radius:6px}
+    .ok{color:#2ecc71;font-weight:600}
+    .warn{color:#e67e22;font-weight:600}
+    .link{color:#0366d6;text-decoration:none}
+    small{color:#555}
+    .error{color:#c0392b;font-weight:600}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+  </style>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false } });
+
+    async function sha256Hex(str){ const enc=new TextEncoder().encode(str); const buf=await crypto.subtle.digest('SHA-256', enc); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+
+    function showError(msg, details){
+      const el = document.getElementById("error");
+      el.innerHTML = `<div class="error">⚠️ ${msg}</div>` + (details ? `<pre class="mono">${details}</pre>` : "");
+      el.style.display = "block";
+      console.error(msg, details);
+    }
+
+    async function fetchSurveys(){
+      const tbody = document.querySelector("#tbody");
+      const err = document.getElementById("error");
+      err.style.display = "none";
+      tbody.innerHTML = "<tr><td colspan='8'>Chargement…</td></tr>";
+
+      const { data, error } = await supabase
+        .from("surveys")
+        .select("id, slug, title, start_date, end_date, admin_password_hash")
+        .order("slug", { ascending: true });
+
+      if (error) {
+        tbody.innerHTML = "<tr><td colspan='8'>Erreur de chargement.</td></tr>";
+        showError("Impossible de lister les sessions (table 'surveys').", JSON.stringify(error, null, 2));
+        return;
+      }
+      if (!data || data.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='8'>Aucune session trouvée.</td></tr>";
+        return;
+      }
+
+      // Compte le nombre de réponses par session (tolérant aux permissions)
+      tbody.innerHTML = "";
+      for (const s of data) {
+        let submissionsCount = "—";
+        try {
+          const cnt = await supabase
+            .from("submissions_simple")
+            .select("*", { count:"exact", head: true })
+            .eq("survey_id", s.id);
+          submissionsCount = (cnt && typeof cnt.count === "number") ? cnt.count : "—";
+        } catch(e){
+          console.warn("Count failed for", s.id, e);
+        }
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><span class="pill">${s.slug}</span><br><small>${s.title || ""}</small></td>
+          <td>${s.start_date || ""} → ${s.end_date || ""}</td>
+          <td>${submissionsCount}</td>
+          <td>${s.admin_password_hash ? "<span class='ok'>défini</span>" : "<span class='warn'>non défini</span>"}<br><small class="mono">${s.admin_password_hash || ""}</small></td>
+          <td>
+            <a class="link" href="./index.html?survey=${encodeURIComponent(s.slug)}" target="_blank">Formulaire</a><br>
+            <a class="link" href="./recap.html?survey=${encodeURIComponent(s.slug)}" target="_blank">Récap</a>
+          </td>
+          <td><button class="btn" onclick="renameSlug('${s.id}','${s.slug}')">Renommer</button></td>
+          <td><button class="btn" onclick="changePassword('${s.id}')">Changer mot de passe</button></td>
+          <td><button class="btn btn-danger" onclick="deleteSurvey('${s.id}','${s.slug}')">Supprimer</button></td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function promptPasswordAndVerify(survey_id){
+      const { data, error } = await supabase.from("surveys").select("admin_password_hash").eq("id", survey_id).single();
+      if (error) { alert(error.message); return false; }
+      const hash = data?.admin_password_hash || null;
+      if (!hash) {
+        alert("Aucun mot de passe défini pour cette session. Action refusée.\nDéfinissez d'abord un mot de passe via la page du formulaire.");
+        return false;
+      }
+      const pwd = prompt("Mot de passe admin de cette session :");
+      if (pwd === null) return false;
+      const h = await sha256Hex(pwd);
+      if (h !== hash) { alert("Mot de passe incorrect."); return false; }
+      return true;
+    }
+
+    async function renameSlug(survey_id, oldSlug){
+      const ok = await promptPasswordAndVerify(survey_id);
+      if (!ok) return;
+      const ns = prompt(`Nouveau code de session (slug)\nActuel : ${oldSlug}`, oldSlug);
+      if (!ns || !ns.trim()) return;
+      const { error } = await supabase.from("surveys").update({ slug: ns.trim() }).eq("id", survey_id);
+      if (error) return alert(error.message);
+      alert("✅ Session renommée."); fetchSurveys();
+    }
+
+    async function changePassword(survey_id){
+      const { data, error } = await supabase.from("surveys").select("admin_password_hash").eq("id", survey_id).single();
+      if (error) return alert(error.message);
+      const hash = data?.admin_password_hash || null;
+      if (hash) {
+        const pwd = prompt("Mot de passe admin ACTUEL :");
+        if (pwd === null) return;
+        const h = await sha256Hex(pwd);
+        if (h !== hash) return alert("Mot de passe incorrect.");
+      }
+      const np = prompt("NOUVEAU mot de passe admin :");
+      if (!np) return;
+      const h2 = await sha256Hex(np);
+      const up = await supabase.from("surveys").update({ admin_password_hash: h2 }).eq("id", survey_id);
+      if (up.error) return alert(up.error.message);
+      alert("✅ Mot de passe mis à jour."); fetchSurveys();
+    }
+
+    async function deleteSurvey(survey_id, slug){
+      const ok = await promptPasswordAndVerify(survey_id);
+      if (!ok) return;
+      if (!confirm(`⚠️ Supprimer ENTIEREMENT la session « ${slug} » (et toutes ses réponses) ?`)) return;
+      const delSub = await supabase.from("submissions_simple").delete().eq("survey_id", survey_id);
+      if (delSub.error) return alert("Erreur suppression réponses : " + delSub.error.message);
+      const delSurvey = await supabase.from("surveys").delete().eq("id", survey_id);
+      if (delSurvey.error) return alert("Erreur suppression session : " + delSurvey.error.message);
+      alert("🗑️ Session supprimée."); fetchSurveys();
+    }
+
+    document.addEventListener("DOMContentLoaded", fetchSurveys);
+  </script>
+</head>
+<body>
+  <div class="container">
+    <h1>Gestion des sessions</h1>
+    <div class="muted">Liste de tous les sondages (sessions). Les mots de passe ne sont jamais visibles en clair (seule l’empreinte SHA-256 apparaît).</div>
+    <div id="error" style="display:none; margin-top:10px;"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Session (slug)</th>
+          <th>Période</th>
+          <th># réponses</th>
+          <th>Mot de passe</th>
+          <th>Liens</th>
+          <th>Renommer</th>
+          <th>Mot de passe</th>
+          <th>Supprimer</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <div class="row" style="margin-top:14px">
+      <a class="link" href="./index.html" target="_blank">➕ Créer une nouvelle session (ouvrir le formulaire et choisir un slug)</a>
+    </div>
+  </div>
+</body>
+</html>
