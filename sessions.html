@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Gestion des sessions (sondages)</title>
+  <title>Console des sessions (créer & gérer)</title>
   <style>
     body{font-family:Arial,Helvetica,sans-serif;max-width:1200px;margin:0 auto;padding:20px;background:#f5f5f5}
     .container{background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.1)}
@@ -14,16 +14,18 @@
     th{background:#f0f3f7}
     .btn{background:#6c757d;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer}
     .btn:hover{opacity:.9}
-    .btn-danger{background:#e74c3c}
+    .btn-primary{background:#1f7aec}
     .pill{background:#eef;color:#223;padding:4px 8px;border-radius:999px;font-weight:600}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
-    input[type="text"],input[type="password"]{padding:8px;border:1px solid #ccc;border-radius:6px}
+    input[type="text"],input[type="password"],input[type="date"]{padding:8px;border:1px solid #ccc;border-radius:6px}
     .ok{color:#2ecc71;font-weight:600}
     .warn{color:#e67e22;font-weight:600}
     .link{color:#0366d6;text-decoration:none}
     small{color:#555}
     .error{color:#c0392b;font-weight:600}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+    .card { border:1px solid #e3e3e3; border-radius:10px; padding:12px; background:#fff; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:10px; }
   </style>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
@@ -44,7 +46,7 @@
       const tbody = document.querySelector("#tbody");
       const err = document.getElementById("error");
       err.style.display = "none";
-      tbody.innerHTML = "<tr><td colspan='8'>Chargement…</td></tr>";
+      tbody.innerHTML = "<tr><td colspan='7'>Chargement…</td></tr>";
 
       const { data, error } = await supabase
         .from("surveys")
@@ -52,12 +54,12 @@
         .order("slug", { ascending: true });
 
       if (error) {
-        tbody.innerHTML = "<tr><td colspan='8'>Erreur de chargement.</td></tr>";
+        tbody.innerHTML = "<tr><td colspan='7'>Erreur de chargement.</td></tr>";
         showError("Impossible de lister les sessions (table 'surveys').", JSON.stringify(error, null, 2));
         return;
       }
       if (!data || data.length === 0) {
-        tbody.innerHTML = "<tr><td colspan='8'>Aucune session trouvée.</td></tr>";
+        tbody.innerHTML = "<tr><td colspan='7'>Aucune session trouvée.</td></tr>";
         return;
       }
 
@@ -87,7 +89,6 @@
           </td>
           <td><button class="btn" onclick="renameSlug('${s.id}','${s.slug}')">Renommer</button></td>
           <td><button class="btn" onclick="changePassword('${s.id}')">Changer mot de passe</button></td>
-          <td><button class="btn btn-danger" onclick="deleteSurvey('${s.id}','${s.slug}')">Supprimer</button></td>
         `;
         tbody.appendChild(tr);
       }
@@ -136,15 +137,39 @@
       alert("✅ Mot de passe mis à jour."); fetchSurveys();
     }
 
-    async function deleteSurvey(survey_id, slug){
-      const ok = await promptPasswordAndVerify(survey_id);
-      if (!ok) return;
-      if (!confirm(`⚠️ Supprimer ENTIEREMENT la session « ${slug} » (et toutes ses réponses) ?`)) return;
-      const delSub = await supabase.from("submissions_simple").delete().eq("survey_id", survey_id);
-      if (delSub.error) return alert("Erreur suppression réponses : " + delSub.error.message);
-      const delSurvey = await supabase.from("surveys").delete().eq("id", survey_id);
-      if (delSurvey.error) return alert("Erreur suppression session : " + delSurvey.error.message);
-      alert("🗑️ Session supprimée."); fetchSurveys();
+    async function createSurvey(){
+      // Créer uniquement depuis cette page
+      const slug = (document.getElementById('newSlug').value || '').trim();
+      const start = document.getElementById('newStart').value;
+      const end = document.getElementById('newEnd').value;
+      const pwd = document.getElementById('newPwd').value;
+      if (!slug) return alert("Code de session requis.");
+      if (!start || !end) return alert("Dates de début et fin requises.");
+      if (new Date(start) > new Date(end)) return alert("La date de début doit précéder la date de fin.");
+
+      const time_slots = [
+        { start: '09:00', end: '12:00' },
+        { start: '14:00', end: '17:00' }
+      ];
+      const row = {
+        slug, title: `Disponibilités – ${slug}`,
+        start_date: start, end_date: end,
+        time_slots
+      };
+      const ins = await supabase.from('surveys').insert(row).select('id').single();
+      if (ins.error) return alert("Erreur création : " + ins.error.message);
+
+      if (pwd) {
+        const h = await sha256Hex(pwd);
+        const up = await supabase.from('surveys').update({ admin_password_hash: h }).eq('id', ins.data.id);
+        if (up.error) return alert("Session créée, mais erreur en définissant le mot de passe : " + up.error.message);
+      }
+      alert("✅ Session créée.");
+      document.getElementById('newSlug').value = '';
+      document.getElementById('newStart').value = '';
+      document.getElementById('newEnd').value = '';
+      document.getElementById('newPwd').value = '';
+      fetchSurveys();
     }
 
     document.addEventListener("DOMContentLoaded", fetchSurveys);
@@ -152,11 +177,23 @@
 </head>
 <body>
   <div class="container">
-    <h1>Gestion des sessions</h1>
-    <div class="muted">Liste de tous les sondages (sessions). Les mots de passe ne sont jamais visibles en clair (seule l’empreinte SHA-256 apparaît).</div>
+    <h1>Console des sessions</h1>
+    <div class="muted">Créez de nouvelles sessions ici, puis utilisez <code>index.html?survey=&lt;slug&gt;</code> pour le formulaire, et <code>recap.html?survey=&lt;slug&gt;</code> pour le récap.</div>
     <div id="error" style="display:none; margin-top:10px;"></div>
 
-    <table>
+    <div class="card" style="margin-top:10px;">
+      <h3>➕ Créer une nouvelle session</h3>
+      <div class="grid">
+        <div><label>Code de session (slug)<br><input id="newSlug" type="text" placeholder="ex : equipe-a" /></label></div>
+        <div><label>Début<br><input id="newStart" type="date" /></label></div>
+        <div><label>Fin<br><input id="newEnd" type="date" /></label></div>
+        <div><label>Mot de passe admin (optionnel)<br><input id="newPwd" type="password" /></label></div>
+      </div>
+      <div class="row"><button class="btn btn-primary" onclick="createSurvey()">Créer la session</button></div>
+      <small>Créneaux par défaut : 09:00–12:00 et 14:00–17:00 (modifiables ensuite depuis la page du formulaire en mode admin).</small>
+    </div>
+
+    <table style="margin-top:16px;">
       <thead>
         <tr>
           <th>Session (slug)</th>
@@ -166,15 +203,10 @@
           <th>Liens</th>
           <th>Renommer</th>
           <th>Mot de passe</th>
-          <th>Supprimer</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
-
-    <div class="row" style="margin-top:14px">
-      <a class="link" href="./index.html" target="_blank">➕ Créer une nouvelle session (ouvrir le formulaire et choisir un slug)</a>
-    </div>
   </div>
 </body>
 </html>
