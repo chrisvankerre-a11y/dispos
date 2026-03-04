@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mes disponibilités — connecté</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
+    h1 { color: #2c3e50; text-align: center; margin-bottom: 6px; }
+    .muted { text-align:center; color:#666; font-size: 13px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #34495e; color: white; }
+    .availability-option { cursor: pointer; padding: 5px; margin: 2px; border-radius: 3px; display: inline-block; width: 25px; height: 25px; line-height: 25px; user-select:none; }
+    .available { background-color: #2ecc71; color: white; }
+    .unavailable { background-color: #e74c3c; color: white; }
+    .maybe { background-color: #f39c12; color: white; }
+    input[type="radio"] { display: none; }
+    .availability-option { border: 1px solid rgba(0,0,0,0.25); box-sizing: border-box; transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease, opacity 120ms ease; }
+    input[type="radio"]:not(:checked) + .availability-option { opacity: 0.45; filter: saturate(0.85); }
+    input[type="radio"]:checked + .availability-option {
+      transform: scale(1.35);
+      opacity: 1;
+      filter: saturate(1.2) brightness(1.05);
+      box-shadow: 0 0 0 3px rgba(0,0,0,0.55), 0 2px 10px rgba(0,0,0,0.25);
+    }
+    .btn { background-color: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; margin: 10px 0; font-weight:bold; }
+    .admin-section { background: #fff3cd; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #ffc107; }
+    .weekend-disabled { background-color: #f3f3f3 !important; color: #777; }
+    .weekend-disabled .availability-option { opacity: 0.35; cursor: not-allowed; }
+    .weekend-disabled input[type="radio"] { pointer-events: none; }
+    .err { color:#b00020; }
+    .ok { color:#1b5e20; }
+    .topbar { display:flex; gap:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; }
+    .link { font-size: 13px; }
+    .link a { color:#1e88e5; }
+    input[type="text"], input[type="password"], input[type="date"] { padding:10px; border:1px solid #ccc; border-radius:8px; width:100%; box-sizing:border-box; }
+    label { font-weight:bold; font-size:14px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.98.0/dist/umd/supabase.js"></script>
+  <script>
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
+    if (!window.supabase || !window.supabase.createClient) {
+      throw new Error("Supabase SDK non chargé (script CDN).");
+    }
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
+    async function sha256Hex(str) {
+      const enc = new TextEncoder().encode(str);
+      const buf = await crypto.subtle.digest("SHA-256", enc);
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    }
+    function qs(name) {
+      return new URLSearchParams(location.search).get(name);
+    }
+    function iso(d) {
+      return new Date(d).toISOString().split("T")[0];
+    }
+    function isWeekend(date) {
+      const day = date.getDay();
+      return day === 0 || day === 6;
+    }
+    function enumerateDates(minISO, maxISO) {
+      const out = [];
+      const start = new Date(minISO);
+      const end = new Date(maxISO);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) out.push(new Date(d));
+      return out;
+    }
+    function slugSlot(label) {
+      return (label||"").toLowerCase().trim().replace(/\s+/g,"-");
+    }
+  </script>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="link" id="adminHomeLink" style="display:none;"><a href="index_connected.html">Créer un sondage</a></div>
+      <div class="link"><a id="recapLink" href="#">Voir le récap</a></div>
+    </div>
+
+    <h1>📅 Mes Disponibilités</h1>
+    <div id="subtitle" class="muted"></div>
+
+    <div id="adminBox" class="admin-section" style="display:none;">
+      <h3 style="margin-top:0;">⚙️ Mode admin (config du sondage)</h3>
+      <div class="muted" style="text-align:left;">Accès via <code>?survey=...&admin=1</code> + mot de passe.</div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+        <div>
+          <label>Mot de passe admin</label>
+          <input id="adminPwd" type="password">
+        </div>
+        <div style="display:flex; align-items:end;">
+          <button class="btn" style="margin:0; width:100%; background:#27ae60;" onclick="adminLogin()">Déverrouiller</button>
+        </div>
+      </div>
+
+      <div id="adminPanel" style="display:none; margin-top:12px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+          <div>
+            <label>Date début</label>
+            <input id="startDate" type="date">
+          </div>
+          <div>
+            <label>Date fin</label>
+            <input id="endDate" type="date">
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <label>Créneaux (virgules)</label>
+          <input id="slotsInput" type="text">
+        </div>
+        <div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+          <input id="excludeWeekends" type="checkbox" style="width:auto;">
+          <span><strong>Week-end exclus</strong></span>
+        </div>
+        <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button class="btn" style="background:#ff9800;" onclick="saveSurveyConfig()">💾 Enregistrer la configuration</button>
+          <span id="adminMsg" class="muted" style="text-align:left;"></span>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align: center; margin: 15px 0;">
+      <input type="text" id="userName" placeholder="Votre nom" style="width: 240px;">
+    </div>
+
+    <div style="text-align: center; margin: 10px 0;">
+      <button onclick="fillAll('available')" style="background: #2ecc71; color: white; border: none; padding: 8px; margin: 2px; border-radius: 8px; cursor: pointer; font-weight:bold;">✓ Tout disponible</button>
+      <button onclick="fillAll('unavailable')" style="background: #e74c3c; color: white; border: none; padding: 8px; margin: 2px; border-radius: 8px; cursor: pointer; font-weight:bold;">✗ Tout indisponible</button>
+      <button onclick="fillAll('maybe')" style="background: #f39c12; color: white; border: none; padding: 8px; margin: 2px; border-radius: 8px; cursor: pointer; font-weight:bold;">? Tout peut-être</button>
+    </div>
+
+    <div id="calendar"></div>
+
+    <div style="text-align: center;">
+      <button class="btn" onclick="submitResponse()">✅ Enregistrer mes disponibilités</button>
+      <div id="saveMsg" class="muted"></div>
+    </div>
+  </div>
+
+<script>
+  const surveyId = qs("survey");
+  const adminMode = qs("admin") === "1";
+  const adminHomeLinkEl = document.getElementById("adminHomeLink");
+  if (adminHomeLinkEl) adminHomeLinkEl.style.display = adminMode ? "block" : "none";
+  const recapLink = document.getElementById("recapLink");
+  recapLink.href = surveyId ? ("recap_connected.html?survey=" + encodeURIComponent(surveyId)) : "index_connected.html";
+
+  const state = {
+    survey: null,
+    adminUnlocked: false,
+    adminPwd: "",
+    userSelections: {}
+  };
+
+  async function loadSurvey() {
+    if (!surveyId) {
+      document.getElementById("calendar").innerHTML = '<div class="err">Survey manquant. Retour accueil.</div>';
+      return;
+    }
+    const { data, error } = await supabaseClient.from("surveys_public").select("*").eq("id", surveyId).single();
+    if (error) throw error;
+    state.survey = data;
+
+    document.getElementById("subtitle").textContent =
+      (data.title ? data.title + " — " : "") + "Période du " + data.start_date + " au " + data.end_date;
+
+    if (adminMode) document.getElementById("adminBox").style.display = "block";
+    renderTable();
+  }
+
+  function slots() {
+    const s = state.survey?.slots;
+    return (Array.isArray(s) && s.length) ? s : ["Jour"];
+  }
+
+  function renderTable() {
+    const s = state.survey;
+    if (!s) return;
+    const dates = enumerateDates(s.start_date, s.end_date);
+    const sl = slots();
+    let html = "<table><thead><tr><th>Date</th><th>Jour</th>";
+    sl.forEach(slot => html += "<th>" + slot + "</th>");
+    html += "</tr></thead><tbody>";
+
+    for (const date of dates) {
+      const dateStr = iso(date);
+      const excluded = !!s.exclude_weekends && isWeekend(date);
+      const day = date.getDate();
+      const month = date.getMonth()+1;
+      const dayName = ["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"][date.getDay()];
+
+      html += excluded ? '<tr class="weekend-disabled">' : '<tr>';
+      html += '<td>' + day + "/" + month + "</td>";
+      html += '<td>' + dayName + "</td>";
+
+      if (!state.userSelections[dateStr]) state.userSelections[dateStr] = {};
+
+      for (const slotLabel of sl) {
+        if (excluded) { html += '<td class="weekend-disabled">—</td>'; continue; }
+        const current = state.userSelections[dateStr][slotLabel] || "";
+        html += "<td>";
+        html += `<label><input type="radio" name="${dateStr}-${slotLabel}" value="available"
+          onchange="setSelection('${dateStr}','${slotLabel}','available')" ${current==="available"?"checked":""}>
+          <span class="availability-option available">✓</span></label>`;
+        html += `<label><input type="radio" name="${dateStr}-${slotLabel}" value="unavailable"
+          onchange="setSelection('${dateStr}','${slotLabel}','unavailable')" ${current==="unavailable"?"checked":""}>
+          <span class="availability-option unavailable">✗</span></label>`;
+        html += `<label><input type="radio" name="${dateStr}-${slotLabel}" value="maybe"
+          onchange="setSelection('${dateStr}','${slotLabel}','maybe')" ${current==="maybe"?"checked":""}>
+          <span class="availability-option maybe">?</span></label>`;
+        html += "</td>";
+      }
+      html += "</tr>";
+    }
+    html += "</tbody></table>";
+    document.getElementById("calendar").innerHTML = html;
+  }
+
+  function setSelection(dateISO, slotLabel, status) {
+    if (!state.userSelections[dateISO]) state.userSelections[dateISO] = {};
+    state.userSelections[dateISO][slotLabel] = status;
+  }
+
+  function fillAll(status) {
+    const s = state.survey;
+    if (!s) return;
+    for (const date of enumerateDates(s.start_date, s.end_date)) {
+      if (s.exclude_weekends && isWeekend(date)) continue;
+      const dateStr = iso(date);
+      if (!state.userSelections[dateStr]) state.userSelections[dateStr] = {};
+      for (const slotLabel of slots()) state.userSelections[dateStr][slotLabel] = status;
+    }
+    renderTable();
+  }
+
+  function flattenSelections() {
+    const s = state.survey;
+    const flat = {};
+    for (const [dateISO, slotsForDate] of Object.entries(state.userSelections)) {
+      if (s.exclude_weekends && isWeekend(new Date(dateISO))) continue;
+      for (const [slotLabel, status] of Object.entries(slotsForDate)) {
+        flat[dateISO + "|" + slugSlot(slotLabel)] = status;
+      }
+    }
+    return flat;
+  }
+
+  async function submitResponse() {
+    const name = document.getElementById("userName").value.trim();
+    const saveMsg = document.getElementById("saveMsg");
+    saveMsg.textContent = "";
+    if (!name) { saveMsg.innerHTML = '<span class="err">Nom requis.</span>'; return; }
+    if (!state.survey) return;
+
+    const flatData = flattenSelections();
+    const slotsData = slots().map(label => ({ label, key: slugSlot(label) }));
+    const payload = {
+      survey_id: surveyId,
+      participant_name: name,
+      data: Object.assign({ __v:"slots-v1", __slots: slotsData }, flatData)
+    };
+
+    saveMsg.textContent = "Enregistrement...";
+    try {
+      const { error } = await supabaseClient.from("responses").upsert(payload, { onConflict: "survey_id,participant_name" });
+      if (error) throw error;
+      saveMsg.innerHTML = '<span class="ok">✅ Enregistré.</span>';
+    } catch(e) {
+      console.error(e);
+      saveMsg.innerHTML = '<span class="err">Erreur: ' + (e?.message || e) + "</span>";
+    }
+  }
+
+  async function adminLogin() {
+    const pwd = document.getElementById("adminPwd").value;
+    const msg = document.getElementById("adminMsg");
+    if (!pwd) return;
+    msg.textContent = "Vérification...";
+    try {
+      const hash = await sha256Hex(pwd);
+      const { data, error } = await supabaseClient.rpc("validate_admin", { p_survey_id: surveyId, p_admin_pwd_hash: hash });
+      if (error) throw error;
+      if (!data) throw new Error("Mot de passe incorrect.");
+      state.adminUnlocked = true;
+      state.adminPwd = hash;
+
+      const s = state.survey;
+      document.getElementById("startDate").value = s.start_date;
+      document.getElementById("endDate").value = s.end_date;
+      document.getElementById("slotsInput").value = (s.slots || []).join(", ");
+      document.getElementById("excludeWeekends").checked = !!s.exclude_weekends;
+
+      document.getElementById("adminPanel").style.display = "block";
+      msg.innerHTML = '<span class="ok">✅ Admin déverrouillé.</span>';
+    } catch(e) {
+      console.error(e);
+      msg.innerHTML = '<span class="err">' + (e?.message || e) + "</span>";
+    }
+  }
+
+  async function saveSurveyConfig() {
+    const msg = document.getElementById("adminMsg");
+    if (!state.adminUnlocked) return;
+    const start = document.getElementById("startDate").value;
+    const end = document.getElementById("endDate").value;
+    const sl = document.getElementById("slotsInput").value.split(",").map(s=>s.trim()).filter(Boolean);
+    const ew = !!document.getElementById("excludeWeekends").checked;
+
+    if (!start || !end || start > end) { msg.innerHTML = '<span class="err">Dates invalides.</span>'; return; }
+    if (sl.length === 0) { msg.innerHTML = '<span class="err">Au moins 1 créneau.</span>'; return; }
+
+    msg.textContent = "Enregistrement...";
+    try {
+      const { error } = await supabaseClient.rpc("update_survey_config", {
+        p_survey_id: surveyId,
+        p_admin_pwd_hash: state.adminPwd,
+        p_start_date: start,
+        p_end_date: end,
+        p_slots: sl,
+        p_exclude_weekends: ew
+      });
+      if (error) throw error;
+      await loadSurvey();
+      msg.innerHTML = '<span class="ok">✅ Enregistré.</span>';
+    } catch(e) {
+      console.error(e);
+      msg.innerHTML = '<span class="err">Erreur: ' + (e?.message || e) + "</span>";
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    loadSurvey().catch(e => {
+      console.error(e);
+      document.getElementById("calendar").innerHTML = '<div class="err">Erreur chargement: ' + (e?.message || e) + "</div>";
+    });
+  });
+</script>
+</body>
+</html>

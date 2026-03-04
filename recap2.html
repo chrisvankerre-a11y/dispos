@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Récapitulatif — connecté</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1400px; margin: 0 auto; padding: 20px; }
+    h1 { color:#2c3e50; }
+    .top { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+    .card { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 15px; margin: 12px 0; }
+    .muted { color:#666; font-size:13px; }
+    .err { color:#b00020; }
+    .ok { color:#1b5e20; }
+    .calendar { overflow-x:auto; margin: 16px 0; }
+    table { border-collapse: collapse; width: 100%; min-width: 1100px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #f2f2f2; font-weight: bold; position: sticky; top: 0; z-index: 2; }
+    .top-head { position: sticky; top: 0; z-index: 3; }
+    .sub-head { position: sticky; top: 34px; z-index: 2; }
+    .participant-name { position: sticky; left: 0; background-color: white; z-index: 1; text-align:left; min-width:160px; }
+    .weekend { background-color: #f9f9f9 !important; }
+    .availability-option { padding: 5px; margin: 2px; border-radius: 3px; display: inline-block; width: 25px; height: 25px; text-align: center; line-height: 25px; }
+    .available { background-color: #d4edda; color: #155724; }
+    .maybe { background-color: #fff3cd; color: #856404; }
+    .unavailable { background-color: #f8d7da; color: #721c24; }
+    .action-btn { padding: 10px 14px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    .btn-ok { background:#27ae60; color:#fff; }
+    .edit-section { background-color: #f5f0ff; padding: 12px; border-radius: 8px; border-left: 4px solid #6f42c1; }
+    .row-actions { display:inline-flex; gap:6px; margin-left: 8px; }
+    .icon-btn { border: 1px solid #ccc; background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 13px; line-height: 1; }
+    .icon-btn.danger { border-color: #dc3545; color:#dc3545; }
+    .editable-cell { cursor: pointer; }
+    .editable-cell:hover { outline: 2px solid rgba(111,66,193,0.35); outline-offset: -2px; }
+    input[type="password"] { padding:10px; border:1px solid #ccc; border-radius:8px; width:100%; box-sizing:border-box; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.98.0/dist/umd/supabase.js"></script>
+  <script>
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
+    if (!window.supabase || !window.supabase.createClient) {
+      throw new Error("Supabase SDK non chargé (script CDN).");
+    }
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
+    async function sha256Hex(str) {
+      const enc = new TextEncoder().encode(str);
+      const buf = await crypto.subtle.digest("SHA-256", enc);
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    }
+    function qs(name) {
+      return new URLSearchParams(location.search).get(name);
+    }
+    function iso(d) {
+      return new Date(d).toISOString().split("T")[0];
+    }
+    function isWeekend(date) {
+      const day = date.getDay();
+      return day === 0 || day === 6;
+    }
+    function enumerateDates(minISO, maxISO) {
+      const out = [];
+      const start = new Date(minISO);
+      const end = new Date(maxISO);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) out.push(new Date(d));
+      return out;
+    }
+    function slugSlot(label) {
+      return (label||"").toLowerCase().trim().replace(/\s+/g,"-");
+    }
+  </script>
+</head>
+<body>
+  <div class="top">
+    <div id="adminHomeLink" style="display:none;"><a href="index_connected.html">Créer un sondage</a></div>
+    <div><a id="formLink" href="#">➡️ Formulaire participant</a></div>
+  </div>
+
+  <h1>📅 Tableau récapitulatif</h1>
+  <div id="subtitle" class="muted"></div>
+
+  <div class="card">
+    <div class="muted">Lecture seule par défaut. Admin via <code>?survey=...&admin=1</code>.</div>
+    <div id="adminBox" class="edit-section" style="display:none; margin-top:10px;">
+      <div style="display:grid; grid-template-columns: 1fr 200px; gap:10px; align-items:end;">
+        <div>
+          <label><strong>Mot de passe admin</strong></label>
+          <input id="adminPwd" type="password">
+        </div>
+        <button class="action-btn btn-ok" onclick="adminLogin()">Déverrouiller</button>
+      </div>
+
+      <div id="adminPanel" style="display:none; margin-top:12px;">
+        <label style="display:flex; gap:8px; align-items:center; font-weight: normal;">
+          <input type="checkbox" id="editMode" onchange="toggleEditMode()">
+          <span>Mode édition (clic cellule : ○ → ✓ → ? → ✗ → ○, bouton 🗑️)</span>
+        </label>
+        <div class="muted" id="adminMsg"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="calendar">
+    <table id="availabilityTable">
+      <thead>
+        <tr id="headRow1" class="top-head">
+          <th rowspan="2" style="min-width:160px">Participants</th>
+        </tr>
+        <tr id="headRow2" class="sub-head"></tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">👀 Résumé</h3>
+    <div id="availabilitySummary"></div>
+  </div>
+
+<script>
+  const surveyId = qs("survey");
+  const adminMode = qs("admin") === "1";
+  const adminHomeLinkEl = document.getElementById("adminHomeLink");
+  if (adminHomeLinkEl) adminHomeLinkEl.style.display = adminMode ? "block" : "none";
+  const formLink = document.getElementById("formLink");
+  formLink.href = surveyId ? ("dispos_connected.html?survey=" + encodeURIComponent(surveyId)) : "index_connected.html";
+
+  const state = {
+    survey: null,
+    rows: [],
+    adminUnlocked: false,
+    adminPwdHash: "",
+    ui: { editMode: false }
+  };
+
+  const dayNames = ["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
+
+  function collectSlots() {
+    const s = state.survey?.slots;
+    if (Array.isArray(s) && s.length) return s.map(label => ({ label, key: slugSlot(label) }));
+    return [{ label:"Jour", key:"jour" }];
+  }
+
+  function cycleStatus(curr) {
+    if (curr === "available") return "maybe";
+    if (curr === "maybe") return "unavailable";
+    if (curr === "unavailable") return undefined;
+    return "available";
+  }
+
+  function statusFor(rec, dateISO, slotKey) {
+    if (!rec) return undefined;
+    if (rec.__v === "slots-v1") return rec[dateISO + "|" + slotKey];
+    return rec[dateISO];
+  }
+
+  function setStatus(rec, dateISO, slotKey, next) {
+    if (rec.__v === "slots-v1") {
+      const k = dateISO + "|" + slotKey;
+      if (next === undefined) delete rec[k];
+      else rec[k] = next;
+      return;
+    }
+    if (next === undefined) delete rec[dateISO];
+    else rec[dateISO] = next;
+  }
+
+  async function loadAll() {
+    if (!surveyId) {
+      document.getElementById("availabilitySummary").innerHTML = '<div class="err">Survey manquant.</div>';
+      return;
+    }
+
+    const { data: s, error: se } = await supabaseClient.from("surveys_public").select("*").eq("id", surveyId).single();
+    if (se) throw se;
+    state.survey = s;
+    document.getElementById("subtitle").textContent = (s.title ? s.title + " — " : "") + "Période du " + s.start_date + " au " + s.end_date;
+
+    if (adminMode) document.getElementById("adminBox").style.display = "block";
+
+    const { data: rows, error: re } = await supabaseClient
+      .from("responses")
+      .select("participant_name,data,updated_at")
+      .eq("survey_id", surveyId)
+      .order("participant_name", { ascending: true });
+    if (re) throw re;
+    state.rows = rows || [];
+
+    renderTable();
+    renderSummary();
+  }
+
+  function renderTable() {
+    const s = state.survey;
+    if (!s) return;
+    const slots = collectSlots();
+    const dates = enumerateDates(s.start_date, s.end_date);
+
+    const headRow1 = document.getElementById("headRow1");
+    const headRow2 = document.getElementById("headRow2");
+    while (headRow1.children.length > 1) headRow1.removeChild(headRow1.lastChild);
+    headRow2.innerHTML = "";
+
+    for (const date of dates) {
+      const day = date.getDate();
+      const month = date.getMonth()+1;
+      const dayName = dayNames[date.getDay()];
+      const th = document.createElement("th");
+      th.colSpan = slots.length;
+      th.textContent = `${dayName} ${day}/${month}`;
+      if (s.exclude_weekends && isWeekend(date)) th.classList.add("weekend");
+      headRow1.appendChild(th);
+
+      for (const sl of slots) {
+        const sub = document.createElement("th");
+        sub.textContent = sl.label;
+        if (s.exclude_weekends && isWeekend(date)) sub.classList.add("weekend");
+        headRow2.appendChild(sub);
+      }
+    }
+
+    const tbody = document.getElementById("tableBody");
+    tbody.innerHTML = "";
+
+    for (const row of state.rows) {
+      const tr = document.createElement("tr");
+      const nameTd = document.createElement("td");
+      nameTd.classList.add("participant-name");
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = row.participant_name;
+      nameTd.appendChild(nameSpan);
+
+      if (state.adminUnlocked) {
+        const actions = document.createElement("span");
+        actions.className = "row-actions";
+
+        const del = document.createElement("button");
+        del.className = "icon-btn danger";
+        del.type = "button";
+        del.title = "Supprimer ce participant";
+        del.textContent = "🗑️";
+        del.addEventListener("click", (e) => {
+          e.stopPropagation();
+          deleteParticipant(row.participant_name);
+        });
+        actions.appendChild(del);
+        nameTd.appendChild(actions);
+      }
+
+      tr.appendChild(nameTd);
+
+      for (const date of dates) {
+        const dateISO = iso(date);
+        const excludedWeekend = !!s.exclude_weekends && isWeekend(date);
+
+        for (const sl of slots) {
+          const td = document.createElement("td");
+          if (excludedWeekend) td.classList.add("weekend");
+
+          if (state.adminUnlocked && state.ui.editMode && !excludedWeekend) {
+            td.classList.add("editable-cell");
+            td.addEventListener("click", () => toggleCell(row.participant_name, dateISO, sl.key));
+          }
+
+          const span = document.createElement("span");
+          const st = statusFor(row.data || {}, dateISO, sl.key);
+
+          if (excludedWeekend) {
+            span.className = "availability-option";
+            span.textContent = "—";
+            span.style.opacity = "0.5";
+          } else if (st === "available") {
+            span.className = "availability-option available"; span.textContent = "✓";
+          } else if (st === "maybe") {
+            span.className = "availability-option maybe"; span.textContent = "?";
+          } else if (st === "unavailable") {
+            span.className = "availability-option unavailable"; span.textContent = "✗";
+          } else {
+            span.className = "availability-option"; span.textContent = "○"; span.style.opacity = "0.3";
+          }
+
+          td.appendChild(span);
+          tr.appendChild(td);
+        }
+      }
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  function renderSummary() {
+    const s = state.survey;
+    if (!s) return;
+    const slots = collectSlots();
+    const dates = enumerateDates(s.start_date, s.end_date);
+
+    const box = document.getElementById("availabilitySummary");
+    const participants = state.rows.map(r => r.participant_name);
+    const dataByName = new Map(state.rows.map(r => [r.participant_name, r.data || {}]));
+
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;">';
+
+    for (const date of dates) {
+      const dateISO = iso(date);
+      const excludedWeekend = !!s.exclude_weekends && isWeekend(date);
+
+      if (excludedWeekend) {
+        html += `
+          <div style="border:1px solid #ddd;padding:10px;border-radius:8px;background:#f3f3f3;color:#777;">
+            <strong>${dayNames[date.getDay()]} ${date.getDate()}/${date.getMonth()+1}</strong><br>
+            <em>Week-end exclu</em>
+          </div>`;
+        continue;
+      }
+
+      let a=0,m=0,u=0,none=0;
+      for (const p of participants) {
+        const rec = dataByName.get(p) || {};
+        for (const sl of slots) {
+          const st = statusFor(rec, dateISO, sl.key);
+          if (st === "available") a++;
+          else if (st === "maybe") m++;
+          else if (st === "unavailable") u++;
+          else none++;
+        }
+      }
+
+      html += `
+        <div style="border:1px solid #ddd;padding:10px;border-radius:8px;background:white;">
+          <strong>${dayNames[date.getDay()]} ${date.getDate()}/${date.getMonth()+1}</strong><br>
+          ✅ ${a} | ❓ ${m} | ❌ ${u} | ○ ${none}
+        </div>`;
+    }
+
+    html += "</div>";
+    box.innerHTML = html;
+  }
+
+  async function adminLogin() {
+    const pwd = document.getElementById("adminPwd").value;
+    const msg = document.getElementById("adminMsg");
+    msg.textContent = "";
+    if (!pwd) return;
+    msg.textContent = "Vérification...";
+    try {
+      const hash = await sha256Hex(pwd);
+      const { data, error } = await supabaseClient.rpc("validate_admin", { p_survey_id: surveyId, p_admin_pwd_hash: hash });
+      if (error) throw error;
+      if (!data) throw new Error("Mot de passe incorrect.");
+      state.adminUnlocked = true;
+      state.adminPwdHash = hash;
+      document.getElementById("adminPanel").style.display = "block";
+      const cb = document.getElementById("editMode");
+      if (cb) { cb.checked = true; state.ui.editMode = true; }
+      msg.innerHTML = '<span class="ok">✅ Admin déverrouillé.</span>';
+      renderTable();
+    } catch(e) {
+      console.error(e);
+      msg.innerHTML = '<span class="err">' + (e?.message || e) + "</span>";
+    }
+  }
+
+  function toggleEditMode() {
+    state.ui.editMode = !!document.getElementById("editMode").checked;
+    renderTable();
+  }
+
+  async function toggleCell(participant, dateISO, slotKey) {
+    if (!state.adminUnlocked || !state.ui.editMode) return;
+    const s = state.survey;
+    if (s.exclude_weekends && isWeekend(new Date(dateISO))) return;
+
+    const row = state.rows.find(r => r.participant_name === participant);
+    if (!row) return;
+
+    if (!row.data || row.data.__v !== "slots-v1") {
+      const slots = collectSlots();
+      row.data = Object.assign({ __v:"slots-v1", __slots: slots }, row.data || {});
+    }
+
+    const curr = statusFor(row.data, dateISO, slotKey);
+    const next = cycleStatus(curr);
+    setStatus(row.data, dateISO, slotKey, next);
+
+    renderTable();
+    try {
+      const { error } = await supabaseClient.rpc("upsert_response_as_admin", {
+        p_survey_id: surveyId,
+        p_admin_pwd_hash: state.adminPwdHash,
+        p_participant_name: participant,
+        p_data: row.data
+      });
+      if (error) throw error;
+    } catch(e) {
+      console.error(e);
+      alert("Erreur sauvegarde admin: " + (e?.message || e));
+      await loadAll();
+    }
+  }
+
+  async function deleteParticipant(participant) {
+    if (!state.adminUnlocked) return;
+    if (!confirm('Supprimer "' + participant + '" ?')) return;
+    try {
+      const { error } = await supabaseClient.rpc("delete_response_as_admin", {
+        p_survey_id: surveyId,
+        p_admin_pwd_hash: state.adminPwdHash,
+        p_participant_name: participant
+      });
+      if (error) throw error;
+      state.rows = state.rows.filter(r => r.participant_name !== participant);
+      renderTable();
+      renderSummary();
+    } catch(e) {
+      console.error(e);
+      alert("Erreur suppression: " + (e?.message || e));
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    loadAll().catch(e => {
+      console.error(e);
+      document.getElementById("availabilitySummary").innerHTML = '<div class="err">Erreur chargement: ' + (e?.message || e) + "</div>";
+    });
+  });
+</script>
+</body>
+</html>
