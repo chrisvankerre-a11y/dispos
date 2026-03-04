@@ -30,120 +30,215 @@
     .btn-ghost:hover{background:#f2f2f2}
     .slot-note{color:#ffd966; font-style:italic; font-weight:600;}
   </style>
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.98.0/dist/umd/supabase.js"></script>
   <script>
+    /**
+     * Modèle de données côté récap :
+     *
+     * RecapApp.state = {
+     *   surveySlug: string,
+     *   surveyId: string | null,
+     *   startDateStr: string | null, // "YYYY-MM-DD"
+     *   endDateStr: string | null,
+     *   timeSlots: Array<{ start:string, end:string, label:string }>,
+     *   adminHash: string | null,
+     *   isAdmin: boolean,
+     *   adminPanelRevealed: boolean,
+     *   responses: Array<{ user_name:string, responses: Record<string,"available"|"unavailable"|"maybe"> }>
+     * }
+     */
+
     const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false} });
+    if (!window.supabase || !window.supabase.createClient) { throw new Error("Supabase SDK non chargé (script CDN)."); }
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}
+    });
 
-    const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "";
-    let startDate, endDate, SURVEY_ID, timeSlots=[], ADMIN_HASH=null, isAdmin=false;
-    let adminPanelRevealed = false;
+    const RecapApp = {
+      state: {
+        surveySlug: new URLSearchParams(location.search).get("survey") || "",
+        surveyId: null,
+        startDateStr: null,
+        endDateStr: null,
+        timeSlots: [],
+        adminHash: null,
+        isAdmin: false,
+        adminPanelRevealed: false,
+        responses: []
+      },
 
-    function ymdLocal(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
-    function parseISO(s){ return new Date(`${s}T00:00:00`); }
-    function rangeDates(start, end){ const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out; }
-    function fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` }
-    function slotKey(dateIso, s){ return `${dateIso}|${s.start}-${s.end}`; }
-    async function sha256Hex(str){ const enc=new TextEncoder().encode(str); const buf=await crypto.subtle.digest('SHA-256', enc); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
-    function headerText(s){ return (s.start&&s.end)?`${s.start}–${s.end}${s.label? " — "+s.label : ""}`:'Journée'; }
+      // ---------- UTILS ----------
+      ymdLocal(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), da=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${da}`; },
+      parseISO(s){ return new Date(`${s}T00:00:00`); },
+      rangeDates(start, end){ const out=[]; for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) out.push(new Date(d)); return out; },
+      fmt(d){ const dd=d.getDate(), mm=d.getMonth()+1, yyyy=d.getFullYear(); return `${dd}/${mm}/${yyyy}` },
+      slotKey(dateIso, s){ return `${dateIso}|${s.start}-${s.end}`; },
+      async sha256Hex(str){ const enc=new TextEncoder().encode(str); const buf=await crypto.subtle.digest("SHA-256", enc); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join(""); },
+      headerText(s){ return (s.start&&s.end)?`${s.start}–${s.end}${s.label? " — "+s.label : ""}`:"Journée"; },
 
-    async function getSurvey(){
-      const { data, error } = await supabase.from("surveys")
-        .select("id, start_date, end_date, time_slots, slug, title, admin_password_hash")
-        .eq("slug", SURVEY_SLUG).single();
-      if (error) throw error;
-      startDate = parseISO(data.start_date);
-      endDate   = parseISO(data.end_date);
-      timeSlots = Array.isArray(data.time_slots) ? data.time_slots.map(s=>({start:s.start, end:s.end, label:(s.label||"").trim()})) : [];
-      SURVEY_ID = data.id;
-      ADMIN_HASH = data.admin_password_hash || null;
+      // ---------- CHARGEMENT DU SONDAGE ----------
+      async getSurvey() {
+        const { surveySlug } = this.state;
+        const { data, error } = await supabaseClient.from("surveys")
+          .select("id, start_date, end_date, time_slots, slug, title, admin_password_hash")
+          .eq("slug", surveySlug)
+          .single();
+        if (error) throw error;
 
-      const slotTxt = (timeSlots && timeSlots.length) ? timeSlots.map(s=>`${s.start}–${s.end}${s.label? " — "+s.label:""}`).join(" | ") : "Journée entière";
-      document.getElementById("meta").textContent = `Sondage : ${data.slug} — Période ${data.start_date} → ${data.end_date} — Créneaux : ${slotTxt}`;
-      document.getElementById("sessionShow").textContent = SURVEY_SLUG;
-      document.getElementById("backLink").href = `./?survey=${encodeURIComponent(SURVEY_SLUG)}`;
+        this.state.surveyId = data.id;
+        this.state.startDateStr = data.start_date;
+        this.state.endDateStr = data.end_date;
+        this.state.timeSlots = Array.isArray(data.time_slots)
+          ? data.time_slots.map(s => ({ start: s.start, end: s.end, label: (s.label || "").trim() }))
+          : [];
+        this.state.adminHash = data.admin_password_hash || null;
 
-      document.getElementById('adminStatus').textContent = ADMIN_HASH
-        ? "Entrez le mot de passe admin."
-        : "Aucun mot de passe défini. Cliquez « Activer Admin ».";
-      reflectAdminUI();
-    }
+        const slotTxt = (this.state.timeSlots && this.state.timeSlots.length)
+          ? this.state.timeSlots
+              .map(s => `${s.start}–${s.end}${s.label ? " — " + s.label : ""}`)
+              .join(" | ")
+          : "Journée entière";
 
-    function revealAdminPanel(){
-      adminPanelRevealed = true;
-      document.getElementById('openAdminBtn').style.display = 'none';
-      document.getElementById('adminLoginWrap').style.display = 'flex';
-      document.getElementById('adminPwd').focus();
-      reflectAdminUI();
-    }
+        document.getElementById("meta").textContent =
+          `Sondage : ${data.slug} — Période ${data.start_date} → ${data.end_date} — Créneaux : ${slotTxt}`;
 
-    async function tryAdminLogin(){
-      if (!ADMIN_HASH) {
-        isAdmin = false;
-        document.getElementById('adminStatus').textContent = "Aucun mot de passe défini. Définissez-le depuis le formulaire.";
-        reflectAdminUI();
-        return;
-      }
-      const pwd=document.getElementById('adminPwd').value||'';
-      const h=await sha256Hex(pwd);
-      isAdmin=(h===ADMIN_HASH);
-      document.getElementById('adminStatus').textContent = isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
-      reflectAdminUI();
-    }
+        document.getElementById("sessionShow").textContent = this.state.surveySlug;
+        document.getElementById("backLink").href = `./?survey=${encodeURIComponent(this.state.surveySlug)}`;
 
-    function reflectAdminUI(){
-      const showReset = adminPanelRevealed && isAdmin;
-      document.getElementById('resetWrap').style.display = showReset ? 'block' : 'none';
-      document.getElementById('adminLoginWrap').style.display = adminPanelRevealed ? 'flex' : 'none';
-    }
+        document.getElementById("adminStatus").textContent = this.state.adminHash
+          ? "Entrez le mot de passe admin."
+          : "Aucun mot de passe défini. Cliquez « Activer Admin ».";
 
-    async function getAllResponses(){
-      const { data, error } = await supabase.from("submissions_simple").select("user_name, responses").eq("survey_id", SURVEY_ID);
-      if (error) throw error;
-      return data || [];
-    }
+        this.reflectAdminUI();
+      },
 
-    function buildTable(responsesList){
-      const theadRow=document.getElementById("theadRow"); const tbody=document.getElementById("tbody");
-      theadRow.innerHTML=""; tbody.innerHTML="";
-      theadRow.innerHTML="<th>Date / Créneau</th>";
-      const participants = responsesList.map(r=>r.user_name);
-      participants.forEach(name=>{ theadRow.innerHTML += `<th>${name}</th>`; });
-      theadRow.innerHTML += "<th>Créneau parfait</th>";
+      // ---------- ADMIN UI ----------
+      revealAdminPanel(){
+        this.state.adminPanelRevealed = true;
+        const openBtn = document.getElementById("openAdminBtn");
+        const loginWrap = document.getElementById("adminLoginWrap");
+        if (openBtn) openBtn.style.display = "none";
+        if (loginWrap) {
+          loginWrap.style.display = "flex";
+          const pwd = document.getElementById("adminPwd");
+          if (pwd) pwd.focus();
+        }
+        this.reflectAdminUI();
+      },
 
-      const dates=rangeDates(startDate,endDate);
-      const slots=(timeSlots&&timeSlots.length)?timeSlots:[{start:'',end:'',label:''}];
+      async tryAdminLogin(){
+        if (!this.state.adminHash) {
+          this.state.isAdmin = false;
+          document.getElementById("adminStatus").textContent =
+            "Aucun mot de passe défini. Définissez-le depuis le formulaire.";
+          this.reflectAdminUI();
+          return;
+        }
+        const pwd = document.getElementById("adminPwd").value || "";
+        const h = await this.sha256Hex(pwd);
+        this.state.isAdmin = (h === this.state.adminHash);
+        document.getElementById("adminStatus").textContent =
+          this.state.isAdmin ? "Admin activé ✅" : "Mot de passe incorrect.";
+        this.reflectAdminUI();
+      },
 
-      dates.forEach(d=>{
-        const dIso=ymdLocal(d);
-        slots.forEach(s=>{
-          const row=document.createElement("tr"); const key=slotKey(dIso,s);
-          let cells=`<td>${fmt(d)}${s.start?` — ${s.start}–${s.end}${s.label? " — <span class='slot-note'>"+s.label+"</span>":""}`:''}</td>`;
-          let allAvailable=true;
-          responsesList.forEach(r=>{ const val=r.responses?.[key]; let symbol=""; if(val==="available") symbol="✅"; else if(val==="maybe"){symbol="❓"; allAvailable=false;} else {symbol="❌"; allAvailable=false;} cells+=`<td>${symbol}</td>`; });
-          cells+=`<td>${(responsesList.length>0 && allAvailable)?"🌟":""}</td>`;
-          row.innerHTML=cells; tbody.appendChild(row);
+      reflectAdminUI(){
+        const showReset = this.state.adminPanelRevealed && this.state.isAdmin;
+        const resetWrap = document.getElementById("resetWrap");
+        const loginWrap = document.getElementById("adminLoginWrap");
+        if (resetWrap) resetWrap.style.display = showReset ? "block" : "none";
+        if (loginWrap) loginWrap.style.display = this.state.adminPanelRevealed ? "flex" : "none";
+      },
+
+      // ---------- RÉPONSES ----------
+      async getAllResponses(){
+        const { surveyId } = this.state;
+        const { data, error } = await supabase
+          .from("submissions_simple")
+          .select("user_name, responses")
+          .eq("survey_id", surveyId);
+        if (error) throw error;
+        this.state.responses = data || [];
+      },
+
+      buildTable(){
+        const theadRow = document.getElementById("theadRow");
+        const tbody = document.getElementById("tbody");
+        theadRow.innerHTML = "";
+        tbody.innerHTML = "";
+
+        theadRow.innerHTML = "<th>Date / Créneau</th>";
+        const participants = this.state.responses.map(r => r.user_name);
+        participants.forEach(name => { theadRow.innerHTML += `<th>${name}</th>`; });
+        theadRow.innerHTML += "<th>Créneau parfait</th>";
+
+        const start = this.parseISO(this.state.startDateStr);
+        const end = this.parseISO(this.state.endDateStr);
+        const dates = this.rangeDates(start, end);
+        const slots = (this.state.timeSlots && this.state.timeSlots.length)
+          ? this.state.timeSlots
+          : [{ start: "", end: "", label: "" }];
+
+        dates.forEach(d => {
+          const dIso = this.ymdLocal(d);
+          slots.forEach(s => {
+            const row = document.createElement("tr");
+            const key = this.slotKey(dIso, s);
+            let cells = `<td>${this.fmt(d)}${s.start ? ` — ${s.start}–${s.end}${s.label ? " — <span class='slot-note'>" + s.label + "</span>" : ""}` : ""}</td>`;
+            let allAvailable = true;
+
+            this.state.responses.forEach(r => {
+              const val = r.responses?.[key];
+              let symbol = "";
+              if (val === "available") symbol = "✅";
+              else if (val === "maybe") { symbol = "❓"; allAvailable = false; }
+              else { symbol = "❌"; allAvailable = false; }
+              cells += `<td>${symbol}</td>`;
+            });
+
+            cells += `<td>${(this.state.responses.length > 0 && allAvailable) ? "🌟" : ""}</td>`;
+            row.innerHTML = cells;
+            tbody.appendChild(row);
+          });
         });
-      });
-    }
+      },
 
-    async function resetAll(){
-      if (!isAdmin) return alert("Mode administrateur requis.");
-      if (!confirm("⚠️ Effacer toutes les réponses de cette session ?")) return;
-      const { error } = await supabase.from("submissions_simple").delete().eq("survey_id", SURVEY_ID);
-      if (error) return alert("Erreur : "+error.message);
-      alert("🧹 Toutes les réponses ont été effacées.");
-      init();
-    }
+      async resetAll(){
+        if (!this.state.isAdmin) {
+          alert("Mode administrateur requis.");
+          return;
+        }
+        if (!confirm("⚠️ Effacer toutes les réponses de cette session ?")) return;
 
-    async function init(){
-      if (!SURVEY_SLUG){ return; }
-      await getSurvey();
-      const list=await getAllResponses();
-      buildTable(list);
-    }
-    document.addEventListener('DOMContentLoaded', init);
+        const { surveyId } = this.state;
+        const { error } = await supabase
+          .from("submissions_simple")
+          .delete()
+          .eq("survey_id", surveyId);
+        if (error) {
+          alert("Erreur : " + error.message);
+          return;
+        }
+        alert("🧹 Toutes les réponses ont été effacées.");
+        await this.init();
+      },
+
+      // ---------- INIT ----------
+      async init(){
+        if (!this.state.surveySlug) return;
+        await this.getSurvey();
+        await this.getAllResponses();
+        this.buildTable();
+      }
+    };
+
+    // Wrappers globaux pour le HTML
+    function revealAdminPanel(){ RecapApp.revealAdminPanel(); }
+    function tryAdminLogin(){ RecapApp.tryAdminLogin(); }
+    function resetAll(){ RecapApp.resetAll(); }
+
+    document.addEventListener("DOMContentLoaded", () => RecapApp.init());
   </script>
 </head>
 <body>
