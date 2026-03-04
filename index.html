@@ -48,10 +48,11 @@
     .error { color:#c0392b; font-weight:600; }
     .slot-note { color:#2c3e50; font-style:italic; font-weight:600; }
   </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.98.0/dist/umd/supabaseClient.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.98.0/dist/umd/supabase.js"></script>
   <script>
-    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabaseClient.co";
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
+    if (!window.supabase || !window.supabase.createClient) { throw new Error("Supabase SDK non chargé (script CDN)."); }
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false } });
 
     const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "";
@@ -80,7 +81,7 @@
       if (empty) empty.classList.add('hidden');
       if (error) error.textContent = "";
 
-      const { data, error:err } = await supabase
+      const { data, error:err } = await supabaseClient
         .from("surveys")
         .select("slug, title, start_date, end_date")
         .order("slug", { ascending: true });
@@ -242,7 +243,7 @@
       if(new Date(start)>new Date(end)) return alert("La date de début doit précéder la date de fin.");
       TIME_SLOTS = normalizeSlots((TIME_SLOTS||[]).filter(s=>s && s.start && s.end));
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from('surveys')
         .update({ start_date:start, end_date:end, time_slots:TIME_SLOTS })
         .eq('id', SURVEY_ID)
@@ -262,7 +263,7 @@
 
     async function preloadByName(){
       const name=document.getElementById('userName')?.value.trim(); if(!name||!SURVEY_ID) return;
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from('submissions_simple')
         .select('responses')
         .eq('survey_id', SURVEY_ID)
@@ -284,7 +285,7 @@
       if (!SURVEY_ID) return alert("Choisissez d'abord une session existante.");
       const responses = buildResponsesJSON();
       if (!Object.keys(responses).length) return alert("Sélectionnez au moins une disponibilité.");
-      const { error } = await supabase
+      const { error } = await supabaseClient
         .from('submissions_simple')
         .upsert({ survey_id:SURVEY_ID, user_name:name, responses, updated_at:new Date().toISOString() }, { onConflict:'survey_id,user_name' });
       if (error) return alert(error.message);
@@ -296,7 +297,7 @@
       if (!name) return alert("Entrez votre nom.");
       if (!SURVEY_ID) return alert("Choisissez d'abord une session existante.");
       if (!confirm(`Effacer les réponses de "${name}" ?`)) return;
-      const { error } = await supabase
+      const { error } = await supabaseClient
         .from('submissions_simple')
         .delete()
         .eq('survey_id', SURVEY_ID)
