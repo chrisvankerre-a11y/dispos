@@ -48,11 +48,11 @@
     .error { color:#c0392b; font-weight:600; }
     .slot-note { color:#2c3e50; font-style:italic; font-weight:600; }
   </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.98.0/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.98.0/dist/umd/supabaseClient.js"></script>
   <script>
-    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabase.co";
+    const SUPABASE_URL = "https://igicmnaxgjzyhujyosse.supabaseClient.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnaWNtbmF4Z2p6eWh1anlvc3NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0MjU3OTksImV4cCI6MjA3NzAwMTc5OX0.e2bJclwq4Bn7MrPGJRlDU5pmaJWrgFFBfbWLWEccn_Y";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false } });
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false } });
 
     const SURVEY_SLUG = new URLSearchParams(location.search).get("survey") || "";
     let SURVEY_ID = null, START_DATE=null, END_DATE=null, TIME_SLOTS=[], ADMIN_HASH=null, isAdmin=false;
@@ -196,7 +196,7 @@
     function applySurveyState(s){ SURVEY_ID=s.id; START_DATE=s.start_date; END_DATE=s.end_date; TIME_SLOTS=normalizeSlots(Array.isArray(s.time_slots)?s.time_slots:[]); ADMIN_HASH=s.admin_password_hash||null; renderSlotsEditor(); }
 
     async function ensureSurveyExistsOrFail(){
-      const got = await supabase.from('surveys')
+      const got = await supabaseClient.from('surveys')
         .select('id, slug, start_date, end_date, time_slots, admin_password_hash, title')
         .eq('slug', SURVEY_SLUG)
         .maybeSingle();
